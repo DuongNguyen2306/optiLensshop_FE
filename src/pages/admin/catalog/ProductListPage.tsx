@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { fetchProducts } from "@/features/catalog/api";
+import ConfirmDialog from "@/components/admin/ConfirmDialog";
+import ManagementModal from "@/components/admin/ManagementModal";
+import {
+  deleteProduct,
+  fetchProducts,
+  toggleActiveProduct,
+  updateProduct,
+} from "@/features/catalog/api";
 import type { Product } from "@/features/catalog/types";
 import { entityId } from "@/features/catalog/types";
 import { getApiErrorMessage } from "@/lib/api-error";
@@ -16,6 +23,10 @@ export default function ProductListPage() {
   const [limit] = useState(20);
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  const [editProduct, setEditProduct] = useState<Product | null>(null);
+  const [deleteProductTarget, setDeleteProductTarget] = useState<Product | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -42,6 +53,44 @@ export default function ProductListPage() {
     e.preventDefault();
     setPage(1);
     void load();
+  };
+
+  const onDeleteProduct = async (product: Product) => {
+    const id = entityId(product);
+    if (!id) {
+      toast.error("Thiếu product ID.");
+      return;
+    }
+    try {
+      setDeleting(true);
+      await deleteProduct(id);
+      toast.success("Đã xóa sản phẩm.");
+      setDeleteProductTarget(null);
+      await load();
+    } catch (e) {
+      toast.error(getApiErrorMessage(e, "Không thể xóa sản phẩm."));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const onToggleActive = async (product: Product) => {
+    const id = entityId(product);
+    if (!id) {
+      toast.error("Thiếu product ID.");
+      return;
+    }
+    const nextActive = !Boolean((product as Record<string, unknown>).active);
+    try {
+      setTogglingId(id);
+      await toggleActiveProduct(id, nextActive);
+      toast.success(nextActive ? "Đã hiển thị sản phẩm." : "Đã ẩn sản phẩm.");
+      await load();
+    } catch (e) {
+      toast.error(getApiErrorMessage(e, "Không thể đổi trạng thái active."));
+    } finally {
+      setTogglingId(null);
+    }
   };
 
   return (
@@ -82,6 +131,7 @@ export default function ProductListPage() {
                 <th className="px-4 py-3">Tên</th>
                 <th className="px-4 py-3">Slug</th>
                 <th className="px-4 py-3">Loại</th>
+                <th className="px-4 py-3">Active</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
@@ -94,14 +144,32 @@ export default function ProductListPage() {
                     <td className="px-4 py-3 font-medium">{p.name ?? "—"}</td>
                     <td className="px-4 py-3 text-slate-600">{p.slug ?? "—"}</td>
                     <td className="px-4 py-3">{String(p.type ?? "—")}</td>
+                    <td className="px-4 py-3">{Boolean((p as Record<string, unknown>).active) ? "Hiện" : "Ẩn"}</td>
                     <td className="px-4 py-3 text-right">
                       {id ? (
-                        <Link
-                          to={`/admin/catalog/products/${encodeURIComponent(id)}/variants`}
-                          className="font-medium text-teal-600 hover:underline"
-                        >
-                          Biến thể
-                        </Link>
+                        <div className="inline-flex items-center gap-2">
+                          <Button type="button" variant="ghost" className="text-[#2bb6a3]" onClick={() => setEditProduct(p)}>
+                            Sửa
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="text-indigo-600"
+                            disabled={togglingId === id}
+                            onClick={() => void onToggleActive(p)}
+                          >
+                            {togglingId === id ? "..." : "Ẩn/Hiện"}
+                          </Button>
+                          <Button type="button" variant="ghost" className="text-red-600" onClick={() => setDeleteProductTarget(p)}>
+                            Xóa
+                          </Button>
+                          <Link
+                            to={`/admin/catalog/products/${encodeURIComponent(id)}/variants`}
+                            className="font-medium text-teal-600 hover:underline"
+                          >
+                            Biến thể
+                          </Link>
+                        </div>
                       ) : null}
                     </td>
                   </tr>
@@ -122,6 +190,156 @@ export default function ProductListPage() {
         </Button>
         <span className="self-center text-sm text-slate-500">Trang {page}</span>
       </div>
+
+      {editProduct ? (
+        <ProductEditModal
+          product={editProduct}
+          onClose={() => setEditProduct(null)}
+          onSaved={async (payload) => {
+            const id = entityId(editProduct);
+            if (!id) {
+              toast.error("Thiếu product ID.");
+              return;
+            }
+            try {
+              await updateProduct(id, payload);
+              toast.success("Cập nhật sản phẩm thành công.");
+              setEditProduct(null);
+              await load();
+            } catch (e) {
+              toast.error(getApiErrorMessage(e, "Không thể cập nhật sản phẩm."));
+            }
+          }}
+        />
+      ) : null}
+
+      <ConfirmDialog
+        open={!!deleteProductTarget}
+        title="Xóa sản phẩm?"
+        description={deleteProductTarget ? `Sản phẩm: ${deleteProductTarget.name ?? entityId(deleteProductTarget)}` : undefined}
+        loading={deleting}
+        onCancel={() => setDeleteProductTarget(null)}
+        onConfirm={() => {
+          if (deleteProductTarget) {
+            void onDeleteProduct(deleteProductTarget);
+          }
+        }}
+      />
     </div>
+  );
+}
+
+function ProductEditModal({
+  product,
+  onClose,
+  onSaved,
+}: {
+  product: Product;
+  onClose: () => void;
+  onSaved: (
+    payload: Partial<{
+      name: string;
+      type: "frame" | "lens" | "accessory";
+      category: string;
+      brand: string;
+      model: string;
+      material: string;
+      description: string;
+    }>
+  ) => void;
+}) {
+  const [name, setName] = useState(String(product.name ?? ""));
+  const [type, setType] = useState(String(product.type ?? ""));
+  const [category, setCategory] = useState(String((product as Record<string, unknown>).category ?? ""));
+  const [brand, setBrand] = useState(String((product as Record<string, unknown>).brand ?? ""));
+  const [model, setModel] = useState(String((product as Record<string, unknown>).model ?? ""));
+  const [material, setMaterial] = useState(String((product as Record<string, unknown>).material ?? ""));
+  const [description, setDescription] = useState(String((product as Record<string, unknown>).description ?? ""));
+
+  useEffect(() => {
+    setName(String(product.name ?? ""));
+    setType(String(product.type ?? ""));
+    setCategory(String((product as Record<string, unknown>).category ?? ""));
+    setBrand(String((product as Record<string, unknown>).brand ?? ""));
+    setModel(String((product as Record<string, unknown>).model ?? ""));
+    setMaterial(String((product as Record<string, unknown>).material ?? ""));
+    setDescription(String((product as Record<string, unknown>).description ?? ""));
+  }, [product]);
+
+  return (
+    <ManagementModal
+      open
+      title="Sửa sản phẩm"
+      description={String(product.slug ?? entityId(product))}
+      onClose={onClose}
+      footer={
+        <>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Hủy
+          </Button>
+          <Button
+            type="button"
+            className="bg-[#2bb6a3]"
+            onClick={() =>
+              onSaved({
+                name: name.trim() || undefined,
+                type: (type.trim() || undefined) as "frame" | "lens" | "accessory" | undefined,
+                category: category.trim() || undefined,
+                brand: brand.trim() || undefined,
+                model: model.trim() || undefined,
+                material: material.trim() || undefined,
+                description: description.trim() || undefined,
+              })
+            }
+          >
+            Lưu
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-3">
+        <div className="space-y-1">
+          <Label>Tên</Label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label>Type</Label>
+          <select
+            className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+            value={type}
+            onChange={(e) => setType(e.target.value)}
+          >
+            <option value="">—</option>
+            <option value="frame">frame</option>
+            <option value="lens">lens</option>
+            <option value="accessory">accessory</option>
+          </select>
+        </div>
+        <div className="space-y-1">
+          <Label>Category ID</Label>
+          <Input value={category} onChange={(e) => setCategory(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label>Brand ID</Label>
+          <Input value={brand} onChange={(e) => setBrand(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label>Model ID</Label>
+          <Input value={model} onChange={(e) => setModel(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label>Material</Label>
+          <Input value={material} onChange={(e) => setMaterial(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label>Description</Label>
+          <textarea
+            className="min-h-[80px] w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </div>
+      </div>
+    </ManagementModal>
   );
 }

@@ -4,6 +4,44 @@ export function variantMongoId(v: ShopVariant): string {
   return String(v._id ?? v.id ?? "");
 }
 
+function parseNonNegativeInt(raw: unknown): number {
+  if (typeof raw === "number" && Number.isFinite(raw) && raw >= 0) {
+    return Math.floor(raw);
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    const n = Number(raw.trim());
+    if (Number.isFinite(n) && n >= 0) {
+      return Math.floor(n);
+    }
+  }
+  return 0;
+}
+
+export function variantStockType(v: ShopVariant): "in_stock" | "preorder" | "discontinued" | "unknown" {
+  const raw = String((v as Record<string, unknown>).stock_type ?? "").toLowerCase().trim();
+  if (raw === "in_stock" || raw === "preorder" || raw === "discontinued") {
+    return raw;
+  }
+  return "unknown";
+}
+
+export function variantAvailableQuantity(v: ShopVariant): number {
+  const stock = parseNonNegativeInt((v as Record<string, unknown>).stock_quantity);
+  const reserved = parseNonNegativeInt((v as Record<string, unknown>).reserved_quantity);
+  return Math.max(0, stock - reserved);
+}
+
+export function isVariantPurchasable(v: ShopVariant): boolean {
+  const stockType = variantStockType(v);
+  if (stockType === "discontinued") {
+    return false;
+  }
+  if (stockType === "in_stock") {
+    return variantAvailableQuantity(v) > 0;
+  }
+  return true;
+}
+
 function parseMoneyField(p: unknown): number | undefined {
   if (typeof p === "number" && !Number.isNaN(p) && p >= 0) {
     return p;

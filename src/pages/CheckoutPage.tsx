@@ -1,12 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import type { Province, District, Ward } from "sub-vn";
 import { getCart } from "@/services/shop.service";
 import { postCheckout } from "@/services/order.service";
 import { createMomoPayment } from "@/services/payment.service";
 import { getApiErrorMessage } from "@/lib/api-error";
-import type { OrderType, PaymentMethod, ShippingMethod } from "@/types/shop";
+import type { PaymentMethod, ShippingMethod } from "@/types/shop";
 import StoreHeader from "@/components/home/store-header";
 import SiteFooter from "@/components/layout/site-footer";
 import { Button } from "@/components/ui/button";
@@ -23,11 +24,7 @@ import {
   formatPriceVnd,
 } from "@/lib/cart-line-display";
 
-const ORDER_TYPES: { value: OrderType; label: string }[] = [
-  { value: "stock", label: "Hàng có sẵn" },
-  { value: "preorder", label: "Đặt trước" },
-  { value: "prescription", label: "Kính kê đơn" },
-];
+// sub-vn được lazy-load khi checkout page mount, tránh bloat main bundle
 
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
   { value: "momo", label: "Ví MoMo" },
@@ -39,23 +36,14 @@ const SHIPPING_METHODS: { value: ShippingMethod; label: string }[] = [
   { value: "pickup", label: "Nhận tại cửa hàng" },
 ];
 
-const LOCATION_TREE: Record<string, Record<string, string[]>> = {
-  "TP.HCM": {
-    "Quận 1": ["Phường Bến Nghé", "Phường Bến Thành", "Phường Đa Kao"],
-    "Quận Bình Thạnh": ["Phường 1", "Phường 2", "Phường 3"],
-    "TP Thủ Đức": ["Phường An Khánh", "Phường Thảo Điền", "Phường Linh Tây"],
-  },
-  "Hà Nội": {
-    "Quận Cầu Giấy": ["Phường Dịch Vọng", "Phường Nghĩa Đô", "Phường Quan Hoa"],
-    "Quận Đống Đa": ["Phường Cát Linh", "Phường Láng Hạ", "Phường Ô Chợ Dừa"],
-    "Quận Hai Bà Trưng": ["Phường Bạch Mai", "Phường Quỳnh Mai", "Phường Thanh Nhàn"],
-  },
-  "Đà Nẵng": {
-    "Quận Hải Châu": ["Phường Hải Châu 1", "Phường Hòa Cường Bắc", "Phường Bình Hiên"],
-    "Quận Thanh Khê": ["Phường An Khê", "Phường Chính Gián", "Phường Tân Chính"],
-    "Quận Sơn Trà": ["Phường An Hải Bắc", "Phường Mân Thái", "Phường Nại Hiên Đông"],
-  },
-};
+function orderIdFromCheckoutOrder(order: unknown): string | null {
+  if (!order || typeof order !== "object") {
+    return null;
+  }
+  const rec = order as Record<string, unknown>;
+  const raw = rec._id ?? rec.id ?? rec.orderId ?? rec.order_id;
+  return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+}
 
 export default function CheckoutPage() {
   const navigate = useNavigate();
@@ -65,27 +53,69 @@ export default function CheckoutPage() {
     queryFn: () => getCart(),
   });
   const rows = cartItemsArrayFromResponse(cartQuery.data);
-  const subtotal = useMemo(() => {
-    return rows.reduce((sum, item) => {
+  const subtotal = useMemo<number>(() => {
+    return rows.reduce<number>((sum, item) => {
       const row = cartRowRecord(item);
       return sum + cartLineUnitPrice(row) * cartLineQuantity(row);
     }, 0);
   }, [rows]);
 
   const [addressLine, setAddressLine] = useState("");
-  const [province, setProvince] = useState("");
-  const [district, setDistrict] = useState("");
-  const [ward, setWard] = useState("");
-  const [orderType, setOrderType] = useState<OrderType>("stock");
+
+  // Province
+  const [allProvinces, setAllProvinces] = useState<Province[]>([]);
+  const [provinceCode, setProvinceCode] = useState<string>("");
+  const [provinceName, setProvinceName] = useState<string>("");
+
+  // District
+  const [districts, setDistricts] = useState<District[]>([]);
+  const [districtCode, setDistrictCode] = useState<string>("");
+  const [districtName, setDistrictName] = useState<string>("");
+
+  // Ward
+  const [wards, setWards] = useState<Ward[]>([]);
+  const [wardName, setWardName] = useState<string>("");
+
+  const [loadingAddress, setLoadingAddress] = useState(true);
+
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cod");
   const [shippingMethod, setShippingMethod] = useState<ShippingMethod>("ship");
   const [submitting, setSubmitting] = useState(false);
 
+  // Lazy-load sub-vn chỉ khi trang checkout mount → không ảnh hưởng main bundle
+  useEffect(() => {
+    void import("sub-vn").then((subVn) => {
+      setAllProvinces(subVn.getProvinces());
+      setLoadingAddress(false);
+    });
+  }, []);
+
+  const handleProvinceChange = (code: string) => {
+    import("sub-vn").then((subVn) => {
+      const found = allProvinces.find((p) => p.code === code);
+      setProvinceCode(code);
+      setProvinceName(found?.name ?? "");
+      setDistricts(code ? subVn.getDistrictsByProvinceCode(code) : []);
+      setDistrictCode("");
+      setDistrictName("");
+      setWards([]);
+      setWardName("");
+    });
+  };
+
+  const handleDistrictChange = (code: string) => {
+    import("sub-vn").then((subVn) => {
+      const found = districts.find((d) => d.code === code);
+      setDistrictCode(code);
+      setDistrictName(found?.name ?? "");
+      setWards(code ? subVn.getWardsByDistrictCode(code) : []);
+      setWardName("");
+    });
+  };
+
   const shippingFee = shippingMethod === "ship" ? 30000 : 0;
   const grandTotal = subtotal + shippingFee;
-  const provinceOptions = Object.keys(LOCATION_TREE);
-  const districtOptions = province ? Object.keys(LOCATION_TREE[province] ?? {}) : [];
-  const wardOptions = province && district ? LOCATION_TREE[province]?.[district] ?? [] : [];
+  const fullAddress = [addressLine.trim(), wardName, districtName, provinceName].filter(Boolean).join(", ");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,19 +123,28 @@ export default function CheckoutPage() {
       toast.error("Giỏ hàng đang trống, chưa thể thanh toán.");
       return;
     }
-    if (!province || !district || !ward) {
-      toast.error("Vui lòng chọn Tỉnh/Thành, Quận/Huyện và Phường/Xã.");
+    if (!provinceName) {
+      toast.error("Vui lòng chọn Tỉnh/Thành phố.");
       return;
     }
-    const addr = [addressLine.trim(), ward, district, province].filter(Boolean).join(", ");
+    if (!districtName) {
+      toast.error("Vui lòng chọn Quận/Huyện.");
+      return;
+    }
+    if (!wardName) {
+      toast.error("Vui lòng chọn Phường/Xã.");
+      return;
+    }
+    if (!paymentMethod) {
+      toast.error("Vui lòng chọn hình thức thanh toán.");
+      return;
+    }
     setSubmitting(true);
     try {
       const res = await postCheckout({
-        shipping_address: addr,
-        order_type: orderType,
+        shipping_address: fullAddress,
         payment_method: paymentMethod,
         shipping_method: shippingMethod,
-        items: [],
       });
 
       let payUrl = typeof res.payUrl === "string" ? res.payUrl.trim() : "";
@@ -130,13 +169,11 @@ export default function CheckoutPage() {
       }
 
       await queryClient.invalidateQueries({ queryKey: ["cart"] });
+      const orderId = res.orderId ?? orderIdFromCheckoutOrder(res.order);
       toast.success(res.message ?? "Đặt hàng thành công.");
-      navigate("/order-success", {
-        replace: true,
-        state: { order: res.order, message: res.message },
-      });
+      navigate(orderId ? `/orders/${encodeURIComponent(orderId)}` : "/orders", { replace: true });
     } catch (err) {
-      toast.error(getApiErrorMessage(err, "Thanh toán thất bại."));
+      toast.error(getApiErrorMessage(err, "Đặt hàng thất bại. Vui lòng thử lại."));
     } finally {
       setSubmitting(false);
     }
@@ -156,50 +193,51 @@ export default function CheckoutPage() {
                   id="address-line"
                   value={addressLine}
                   onChange={(e) => setAddressLine(e.target.value)}
-                  placeholder="Số nhà, tên đường (không bắt buộc)"
+                  placeholder="Số nhà, tên đường"
                 />
+                {/* Tỉnh / Thành phố */}
                 <select
-                  className="flex h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
-                  value={province}
-                  onChange={(e) => {
-                    setProvince(e.target.value);
-                    setDistrict("");
-                    setWard("");
-                  }}
+                  className="flex h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm disabled:bg-slate-50 disabled:text-slate-400"
+                  value={provinceCode}
+                  disabled={loadingAddress}
+                  onChange={(e) => handleProvinceChange(e.target.value)}
                 >
-                  <option value="">Chọn Tỉnh/Thành</option>
-                  {provinceOptions.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
+                  <option value="">
+                    {loadingAddress ? "Đang tải dữ liệu..." : "Chọn Tỉnh / Thành phố"}
+                  </option>
+                  {allProvinces.map((p) => (
+                    <option key={p.code} value={p.code}>
+                      {p.name}
                     </option>
                   ))}
                 </select>
+
+                {/* Quận / Huyện */}
                 <select
-                  className="flex h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm disabled:bg-slate-50"
-                  value={district}
-                  disabled={!province}
-                  onChange={(e) => {
-                    setDistrict(e.target.value);
-                    setWard("");
-                  }}
+                  className="flex h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm disabled:bg-slate-50 disabled:text-slate-400"
+                  value={districtCode}
+                  disabled={!provinceCode}
+                  onChange={(e) => handleDistrictChange(e.target.value)}
                 >
-                  <option value="">Chọn Quận/Huyện</option>
-                  {districtOptions.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
+                  <option value="">Chọn Quận / Huyện</option>
+                  {districts.map((d) => (
+                    <option key={d.code} value={d.code}>
+                      {d.name}
                     </option>
                   ))}
                 </select>
+
+                {/* Phường / Xã */}
                 <select
-                  className="flex h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm disabled:bg-slate-50"
-                  value={ward}
-                  disabled={!district}
-                  onChange={(e) => setWard(e.target.value)}
+                  className="flex h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm disabled:bg-slate-50 disabled:text-slate-400"
+                  value={wardName}
+                  disabled={!districtCode}
+                  onChange={(e) => setWardName(e.target.value)}
                 >
-                  <option value="">Chọn Phường/Xã</option>
-                  {wardOptions.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
+                  <option value="">Chọn Phường / Xã</option>
+                  {wards.map((w) => (
+                    <option key={w.code} value={w.name}>
+                      {w.name}
                     </option>
                   ))}
                 </select>
@@ -228,23 +266,14 @@ export default function CheckoutPage() {
                   </label>
                 ))}
               </div>
+              {paymentMethod === "momo" ? (
+                <p className="mt-3 text-sm text-slate-600">Sau khi xác nhận đơn, hệ thống sẽ chuyển bạn sang cổng MoMo để hoàn tất thanh toán.</p>
+              ) : (
+                <p className="mt-3 text-sm text-slate-600">Bạn thanh toán khi nhận hàng (COD), không cần chuyển sang cổng thanh toán.</p>
+              )}
             </section>
 
             <section className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>Loại đơn</Label>
-                <select
-                  className="flex h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
-                  value={orderType}
-                  onChange={(e) => setOrderType(e.target.value as OrderType)}
-                >
-                  {ORDER_TYPES.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
               <div className="space-y-1.5">
                 <Label>Giao hàng</Label>
                 <select
@@ -267,7 +296,7 @@ export default function CheckoutPage() {
                 disabled={submitting || rows.length === 0 || cartQuery.isPending}
                 className="h-11 rounded-full bg-[#2bb6a3] px-8 text-sm font-semibold uppercase tracking-wide text-white hover:brightness-[0.98]"
               >
-                {submitting ? "Đang xử lý..." : paymentMethod === "momo" ? "Thanh toán bằng MoMo" : "Đặt hàng"}
+                {submitting ? "Đang đặt hàng..." : paymentMethod === "momo" ? "Thanh toán bằng MoMo" : "Đặt hàng (COD)"}
               </Button>
               <Link
                 to="/cart"
@@ -322,6 +351,14 @@ export default function CheckoutPage() {
                 </ul>
 
                 <div className="mt-4 border-b border-slate-200 pb-3 text-sm">
+                  <div className="mb-3 rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600">
+                    <p className="font-semibold text-slate-800">Thông tin giao hàng</p>
+                    <p className="mt-1">{fullAddress || "Chưa nhập địa chỉ"}</p>
+                    <p className="mt-1">
+                      Thanh toán: {paymentMethod === "cod" ? "COD" : "MoMo"} | Vận chuyển:{" "}
+                      {shippingMethod === "ship" ? "Giao tận nơi" : "Nhận tại cửa hàng"}
+                    </p>
+                  </div>
                   <div className="flex items-center justify-between">
                     <span className="text-slate-700">Tạm tính</span>
                     <span className="font-semibold text-slate-900">{formatPriceVnd(subtotal)}</span>

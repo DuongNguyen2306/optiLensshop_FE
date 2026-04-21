@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { fetchProducts } from "@/features/catalog/api";
+import { fetchCombos } from "@/services/combo.service";
 import StoreHeader from "@/components/home/store-header";
 import SiteFooter from "@/components/layout/site-footer";
 import { getApiErrorMessage } from "@/lib/api-error";
@@ -8,6 +9,8 @@ import type { HomeProductCard } from "@/lib/home-product-map";
 import { mapProductListToHomeCards } from "@/lib/home-product-map";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { Combo } from "@/types/combo";
+import { comboPreviewImage } from "@/lib/combo-display";
 
 /** Banner tách trái ảnh / phải nội dung nền beige — đúng layout mẫu Anna. */
 const HERO_MODEL =
@@ -114,11 +117,57 @@ function ProductCard({ product }: { product: HomeProductCard }) {
   );
 }
 
+function ComboCard({ combo }: { combo: Combo }) {
+  const id = String(combo._id ?? combo.id ?? "");
+  const slug = String(combo.slug ?? "");
+  const link = `/combos/${encodeURIComponent(slug || id)}`;
+  const price = typeof combo.combo_price === "number" ? combo.combo_price : 0;
+  const image = comboPreviewImage(combo);
+  return (
+    <Link
+      to={link}
+      className={cn(
+        "group block rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition duration-300",
+        "hover:border-[#2bb6a3]/25 hover:bg-teal-50 hover:shadow-md"
+      )}
+    >
+      <article>
+        <div className="relative overflow-hidden rounded-lg border border-slate-100 bg-slate-50/80">
+          <p className="absolute left-0 right-0 top-3 z-[1] text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+            combo eyewear
+          </p>
+          <div className="flex min-h-[160px] items-center justify-center px-3 pb-6 pt-10 sm:min-h-[180px]">
+            {image ? (
+              <img
+                src={image}
+                alt={combo.name ?? "Combo"}
+                className="h-32 max-h-36 w-full max-w-[200px] object-contain transition duration-500 ease-out group-hover:scale-105"
+              />
+            ) : (
+              <span className="text-xs font-medium text-slate-400">Chưa có ảnh</span>
+            )}
+          </div>
+        </div>
+        <div className="px-1 pt-3 text-center">
+          <h4 className="mt-3 line-clamp-2 text-sm font-bold uppercase leading-snug tracking-wide text-slate-900">
+            {combo.name ?? "Combo"}
+          </h4>
+          <p className="mt-2 text-xs text-slate-500">{combo.description ?? "Gọng + tròng tối ưu cho nhu cầu sử dụng."}</p>
+        </div>
+        <p className="mt-3 text-center text-sm font-bold text-[#2bb6a3]">{formatPriceVnd(price)}</p>
+      </article>
+    </Link>
+  );
+}
+
 export default function HomePage() {
   const [bestProducts, setBestProducts] = useState<HomeProductCard[]>([]);
   const [newProducts, setNewProducts] = useState<HomeProductCard[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [productsError, setProductsError] = useState<string | null>(null);
+  const [comboProducts, setComboProducts] = useState<Combo[]>([]);
+  const [loadingCombos, setLoadingCombos] = useState(true);
+  const [combosError, setCombosError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -151,6 +200,34 @@ export default function HomePage() {
     };
 
     void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadCombos = async () => {
+      setLoadingCombos(true);
+      setCombosError(null);
+      try {
+        const res = await fetchCombos({ page: 1, limit: 8, is_active: true });
+        if (cancelled) {
+          return;
+        }
+        setComboProducts(res.items ?? []);
+      } catch (e) {
+        if (!cancelled) {
+          setCombosError(getApiErrorMessage(e, "Không tải được danh sách combo."));
+          setComboProducts([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingCombos(false);
+        }
+      }
+    };
+    void loadCombos();
     return () => {
       cancelled = true;
     };
@@ -273,6 +350,28 @@ export default function HomePage() {
           className="h-52 w-full object-cover sm:h-64 md:h-80 lg:h-96"
         />
       </div>
+
+      <section className="mx-auto max-w-6xl px-6 py-16 lg:px-8 lg:py-20">
+        <div className="mb-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <h3 className="text-lg font-bold uppercase tracking-[0.22em] text-[#2bb6a3] sm:text-left">Combo nổi bật</h3>
+          <Link to="/combos" className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-600 hover:text-[#2bb6a3]">
+            Xem tất cả →
+          </Link>
+        </div>
+        {loadingCombos ? (
+          <p className="py-12 text-center text-sm font-medium text-slate-500">Đang tải combo…</p>
+        ) : combosError ? (
+          <p className="rounded-lg border border-red-200 bg-red-50 py-8 text-center text-sm text-red-700">{combosError}</p>
+        ) : comboProducts.length === 0 ? (
+          <p className="py-12 text-center text-sm text-slate-500">Chưa có combo.</p>
+        ) : (
+          <div className="grid grid-cols-2 gap-6 lg:grid-cols-4">
+            {comboProducts.map((c) => (
+              <ComboCard key={String(c._id ?? c.id ?? c.slug)} combo={c} />
+            ))}
+          </div>
+        )}
+      </section>
 
       <section className="mx-auto max-w-6xl px-6 py-16 lg:px-8 lg:py-20">
         <div className="mb-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">

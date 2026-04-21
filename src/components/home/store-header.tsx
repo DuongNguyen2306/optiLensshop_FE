@@ -4,7 +4,7 @@ import SiteHeader from "@/components/layout/site-header";
 import { getCart } from "@/services/shop.service";
 import { cartItemCountFromResponse } from "@/lib/cart-utils";
 import { canManageCatalog } from "@/lib/catalog-roles";
-import { canAccessStaffManagement } from "@/lib/management-roles";
+import { canAccessInternalOrders, canAccessStaffManagement } from "@/lib/management-roles";
 import { useAppSelector } from "@/store/hooks";
 
 function IconUser({ className }: { className?: string }) {
@@ -57,7 +57,16 @@ export default function StoreHeader() {
               Nhân sự
             </Link>
           ) : null}
-          {isAuthenticated && user?.role === "customer" ? (
+          {isAuthenticated && user && canAccessInternalOrders(user.role) ? (
+            <Link
+              to="/admin/orders"
+              className="hidden text-sm font-medium text-slate-600 hover:text-[#2bb6a3] sm:inline"
+              title="Đơn nội bộ"
+            >
+              Đơn nội bộ
+            </Link>
+          ) : null}
+          {isAuthenticated && (user?.role ?? "").toLowerCase() === "customer" ? (
             <Link
               to="/orders"
               className="text-sm font-medium text-slate-600 hover:text-[#2bb6a3]"
@@ -85,9 +94,11 @@ export default function StoreHeader() {
             aria-label="Giỏ hàng"
           >
             <IconBag className="h-5 w-5" />
-            <span className="absolute right-1 top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-0.5 text-[10px] font-bold text-white">
-              {cartCount > 9 ? "9+" : cartCount}
-            </span>
+            {cartCount > 0 ? (
+              <span className="absolute right-1 top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-0.5 text-[10px] font-bold text-white">
+                {cartCount > 9 ? "9+" : cartCount}
+              </span>
+            ) : null}
           </Link>
         </>
       }

@@ -11,14 +11,20 @@ export interface OrderPayment {
 /** Một đơn trong danh sách lịch sử. */
 export interface CustomerOrderListItem {
   _id?: string;
+  id?: string;
   user_id?: string;
+  user?: Record<string, unknown> | null;
   order_type?: string;
   status?: string;
   total_amount?: number;
+  final_amount?: number;
   shipping_fee?: number;
   shipping_address?: string;
+  items?: OrderLineItem[];
   created_at?: string;
+  updated_at?: string;
   payment?: OrderPayment | null;
+  [key: string]: unknown;
 }
 
 export interface OrdersPagination {
@@ -31,6 +37,31 @@ export interface OrdersPagination {
 export interface CustomerOrdersListResponse {
   items: CustomerOrderListItem[];
   pagination: OrdersPagination;
+}
+
+export interface OrderLineItem {
+  _id?: string;
+  id?: string;
+  variant_id?: string | Record<string, unknown>;
+  combo_id?: string | Record<string, unknown>;
+  quantity?: number;
+  unit_price?: number;
+  total_price?: number;
+  lens_params?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface OrderDetailResponse {
+  order?: CustomerOrderListItem | null;
+  message?: string;
+}
+
+export interface InternalOrdersQuery {
+  page?: number;
+  limit?: number;
+  status?: string;
+  payment_method?: string;
+  payment_status?: string;
 }
 
 /** Giá trị filter status gửi lên API (chuỗi rỗng = tất cả). */

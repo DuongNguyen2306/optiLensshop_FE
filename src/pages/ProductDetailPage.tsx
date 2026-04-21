@@ -6,7 +6,14 @@ import { fetchProductDetailBySlug, fetchProducts, fetchProductVariants } from "@
 import { entityId } from "@/features/catalog/types";
 import { getApiErrorMessage } from "@/lib/api-error";
 import { mapProductListToHomeCards, pickPrimaryImageForProduct } from "@/lib/home-product-map";
-import { variantConsumerLabel, variantMongoId, variantPrice } from "@/lib/shop-utils";
+import {
+  isVariantPurchasable,
+  variantAvailableQuantity,
+  variantConsumerLabel,
+  variantMongoId,
+  variantPrice,
+  variantStockType,
+} from "@/lib/shop-utils";
 import { postCartItem } from "@/services/shop.service";
 import type { ShopVariant } from "@/types/shop";
 import StoreHeader from "@/components/home/store-header";
@@ -237,10 +244,17 @@ export default function ProductDetailPage() {
     [variants, selectedVariantId]
   );
 
-  const selectedOutOfStock =
-    selectedVariant != null &&
-    typeof selectedVariant.stock_quantity === "number" &&
-    selectedVariant.stock_quantity <= 0;
+  const selectedStockType = selectedVariant ? variantStockType(selectedVariant) : "unknown";
+  const selectedAvailableQty = selectedVariant ? variantAvailableQuantity(selectedVariant) : 0;
+  const selectedPurchasable = selectedVariant ? isVariantPurchasable(selectedVariant) : false;
+  const selectedOutOfStock = !selectedPurchasable;
+  const maxInStockQty = selectedStockType === "in_stock" ? Math.max(1, selectedAvailableQty) : undefined;
+
+  useEffect(() => {
+    if (maxInStockQty && quantity > maxInStockQty) {
+      setQuantity(maxInStockQty);
+    }
+  }, [maxInStockQty, quantity]);
 
   const selectedPrice = selectedVariant ? variantPrice(selectedVariant) : 0;
 
@@ -274,17 +288,34 @@ export default function ProductDetailPage() {
     return palette.slice(0, 5);
   }, [variants]);
 
-  const stockLabel =
-    selectedVariant && typeof selectedVariant.stock_quantity === "number"
-      ? selectedVariant.stock_quantity > 0
-        ? `Còn ${selectedVariant.stock_quantity} sản phẩm`
-        : "Tạm hết hàng"
-      : "Đang cập nhật tồn kho";
+  const stockLabel = (() => {
+    if (!selectedVariant) {
+      return "Đang cập nhật tồn kho";
+    }
+    if (selectedStockType === "discontinued") {
+      return "Ngừng bán";
+    }
+    if (selectedStockType === "preorder") {
+      return "Pre-order (thời gian giao có thể lâu hơn)";
+    }
+    if (selectedStockType === "in_stock") {
+      return selectedAvailableQty > 0 ? `Còn ${selectedAvailableQty} sản phẩm khả dụng` : "Tạm hết hàng";
+    }
+    return "Đang cập nhật tồn kho";
+  })();
 
   const addCurrentItemToCart = async (opts?: { showSuccessToast?: boolean }) => {
     const showSuccessToast = opts?.showSuccessToast ?? true;
     if (!selectedVariantId) {
       toast.error("Vui lòng chọn một phiên bản sản phẩm.");
+      return false;
+    }
+    if (!selectedVariant || !selectedPurchasable) {
+      toast.error("Phiên bản này hiện không thể mua.");
+      return false;
+    }
+    if (selectedStockType === "in_stock" && quantity > selectedAvailableQty) {
+      toast.error(`Số lượng vượt quá tồn khả dụng (${selectedAvailableQty}).`);
       return false;
     }
     if (!token) {
@@ -473,14 +504,29 @@ export default function ProductDetailPage() {
                 <input
                   type="number"
                   min={1}
+                  max={maxInStockQty}
                   value={quantity}
-                  onChange={(e) => setQuantity(Math.max(1, Number(e.target.value) || 1))}
+                  onChange={(e) => {
+                    const next = Math.max(1, Number(e.target.value) || 1);
+                    if (maxInStockQty) {
+                      setQuantity(Math.min(maxInStockQty, next));
+                      return;
+                    }
+                    setQuantity(next);
+                  }}
                   className="h-full w-12 border-x border-slate-300 text-center text-sm outline-none"
                 />
                 <button
                   type="button"
                   className="h-full w-10 text-slate-700 transition hover:bg-slate-50"
-                  onClick={() => setQuantity((prev) => prev + 1)}
+                  onClick={() => {
+                    setQuantity((prev) => {
+                      if (maxInStockQty) {
+                        return Math.min(maxInStockQty, prev + 1);
+                      }
+                      return prev + 1;
+                    });
+                  }}
                   aria-label="Tăng số lượng"
                 >
                   +
@@ -517,7 +563,15 @@ export default function ProductDetailPage() {
             </div>
 
             <div className="mt-6 flex items-center justify-between border-y border-slate-200 py-4 text-sm">
-              <p className="text-slate-700">{stockLabel}</p>
+              <div className="flex items-center gap-2">
+                <p className="text-slate-700">{stockLabel}</p>
+                {selectedStockType === "discontinued" ? (
+                  <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">Ngừng bán</span>
+                ) : null}
+                {selectedStockType === "preorder" ? (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">Pre-order</span>
+                ) : null}
+              </div>
               <button type="button" className="font-medium text-[#2bb6a3] transition hover:opacity-80">
                 Xem chi nhánh còn hàng +
               </button>

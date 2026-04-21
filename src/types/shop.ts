@@ -7,6 +7,8 @@ export type ShopVariant = Record<string, unknown> & {
   sku?: string;
   price?: number;
   stock_quantity?: number;
+  reserved_quantity?: number;
+  stock_type?: "in_stock" | "preorder" | "discontinued" | string;
 };
 
 export interface ProductDetailPayload {
@@ -19,20 +21,44 @@ export interface AddCartItemBody {
   variant_id?: string;
   combo_id?: string;
   quantity: number;
-  lens_params?: Record<string, unknown>;
+  lens_params?: LensParams;
 }
 
-export type OrderType = "stock" | "preorder" | "prescription";
 export type PaymentMethod = "momo" | "cod";
 export type ShippingMethod = "ship" | "pickup";
 
+export interface LensParams {
+  sph_right?: number | string;
+  sph_left?: number | string;
+  cyl_right?: number | string;
+  cyl_left?: number | string;
+  axis_right?: number | string;
+  axis_left?: number | string;
+  add_right?: number | string;
+  add_left?: number | string;
+  pd?: number | string;
+  pupillary_distance?: number | string;
+  note?: string;
+  [key: string]: unknown;
+}
+
+export interface CheckoutItemPayload {
+  variant_id?: string;
+  combo_id?: string;
+  quantity: number;
+  lens_params?: LensParams;
+}
+
 export interface CheckoutPayload {
-  shipping_address: string;
-  order_type: OrderType;
+  shipping_address: string | Record<string, unknown>;
   payment_method: PaymentMethod;
   shipping_method: ShippingMethod;
-  /** [] = thanh toán cả giỏ */
-  items: { variant_id?: string; combo_id?: string; quantity: number }[];
+  discount_amount?: number;
+  /** Không truyền hoặc [] = thanh toán cả giỏ */
+  items?: CheckoutItemPayload[];
+  prescription_image?: string;
+  optometrist_name?: string;
+  clinic_name?: string;
 }
 
 export interface CheckoutResponse {

@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { createProductVariant, fetchProductVariants } from "@/features/catalog/api";
+import ConfirmDialog from "@/components/admin/ConfirmDialog";
+import ManagementModal from "@/components/admin/ManagementModal";
+import { createProductVariant, deleteProductVariant, fetchProductVariants, updateProductVariant } from "@/features/catalog/api";
+import { Button } from "@/components/ui/button";
 import type { ProductVariantInput } from "@/features/catalog/types";
 import { getApiErrorMessage } from "@/lib/api-error";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -17,6 +19,9 @@ export default function ProductVariantsPage() {
   const [price, setPrice] = useState("0");
   const [stock, setStock] = useState("0");
   const [attributesJson, setAttributesJson] = useState("{}");
+  const [editVariant, setEditVariant] = useState<(ProductVariantInput & { _id?: string }) | null>(null);
+  const [deleteVariant, setDeleteVariant] = useState<(ProductVariantInput & { _id?: string }) | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!productId) {
@@ -98,6 +103,7 @@ export default function ProductVariantsPage() {
                 <th className="px-4 py-2">SKU</th>
                 <th className="px-4 py-2">Giá</th>
                 <th className="px-4 py-2">Tồn</th>
+                <th className="px-4 py-2 text-right">Thao tác</th>
               </tr>
             </thead>
             <tbody>
@@ -106,6 +112,14 @@ export default function ProductVariantsPage() {
                   <td className="px-4 py-2 font-mono text-xs">{String(v.sku ?? "—")}</td>
                   <td className="px-4 py-2">{String(v.price ?? "")}</td>
                   <td className="px-4 py-2">{String(v.stock_quantity ?? "")}</td>
+                  <td className="px-4 py-2 text-right">
+                    <Button type="button" variant="ghost" className="text-[#2bb6a3]" onClick={() => setEditVariant(v)}>
+                      Sửa
+                    </Button>
+                    <Button type="button" variant="ghost" className="text-red-600" onClick={() => setDeleteVariant(v)}>
+                      Xóa
+                    </Button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -136,6 +150,127 @@ export default function ProductVariantsPage() {
           {saving ? "Đang lưu…" : "Thêm biến thể"}
         </Button>
       </form>
+
+      {editVariant ? (
+        <VariantEditModal
+          variant={editVariant}
+          onClose={() => setEditVariant(null)}
+          onSubmit={async (body) => {
+            if (!productId || !editVariant?._id) {
+              toast.error("Thiếu thông tin variant.");
+              return;
+            }
+            try {
+              await updateProductVariant(productId, editVariant._id, body);
+              toast.success("Đã cập nhật biến thể.");
+              setEditVariant(null);
+              await load();
+            } catch (e) {
+              toast.error(getApiErrorMessage(e, "Không thể cập nhật biến thể."));
+            }
+          }}
+        />
+      ) : null}
+
+      <ConfirmDialog
+        open={!!deleteVariant}
+        title="Xóa biến thể?"
+        description={deleteVariant ? `SKU: ${String(deleteVariant.sku ?? "—")}` : undefined}
+        loading={deleteLoading}
+        onCancel={() => setDeleteVariant(null)}
+        onConfirm={() => {
+          if (!productId || !deleteVariant?._id) {
+            return;
+          }
+          setDeleteLoading(true);
+          void deleteProductVariant(productId, deleteVariant._id)
+            .then(async () => {
+              toast.success("Đã xóa biến thể.");
+              setDeleteVariant(null);
+              await load();
+            })
+            .catch((e) => toast.error(getApiErrorMessage(e, "Không thể xóa biến thể.")))
+            .finally(() => setDeleteLoading(false));
+        }}
+      />
     </div>
+  );
+}
+
+function VariantEditModal({
+  variant,
+  onClose,
+  onSubmit,
+}: {
+  variant: ProductVariantInput & { _id?: string };
+  onClose: () => void;
+  onSubmit: (body: Partial<ProductVariantInput>) => void;
+}) {
+  const [sku, setSku] = useState(String(variant.sku ?? ""));
+  const [price, setPrice] = useState(String(variant.price ?? ""));
+  const [stock, setStock] = useState(String(variant.stock_quantity ?? 0));
+  const [attributesJson, setAttributesJson] = useState(JSON.stringify(variant.attributes ?? {}));
+
+  useEffect(() => {
+    setSku(String(variant.sku ?? ""));
+    setPrice(String(variant.price ?? ""));
+    setStock(String(variant.stock_quantity ?? 0));
+    setAttributesJson(JSON.stringify(variant.attributes ?? {}));
+  }, [variant]);
+
+  return (
+    <ManagementModal
+      open
+      title="Sửa biến thể"
+      description={variant._id}
+      onClose={onClose}
+      footer={
+        <>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Hủy
+          </Button>
+          <Button
+            type="button"
+            className="bg-[#2bb6a3]"
+            onClick={() => {
+              let attributes: Record<string, unknown> = {};
+              try {
+                attributes = attributesJson.trim() ? (JSON.parse(attributesJson) as Record<string, unknown>) : {};
+              } catch {
+                toast.error("attributes phải là JSON hợp lệ.");
+                return;
+              }
+              onSubmit({
+                sku: sku.trim() || undefined,
+                price: Number(price) || undefined,
+                stock_quantity: Number(stock) || 0,
+                attributes,
+              });
+            }}
+          >
+            Lưu
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-3">
+        <div className="space-y-1">
+          <Label>SKU</Label>
+          <Input value={sku} onChange={(e) => setSku(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label>Giá</Label>
+          <Input type="number" min={0} value={price} onChange={(e) => setPrice(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label>Tồn kho</Label>
+          <Input type="number" min={0} value={stock} onChange={(e) => setStock(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label>Attributes JSON</Label>
+          <Input value={attributesJson} onChange={(e) => setAttributesJson(e.target.value)} className="font-mono text-xs" />
+        </div>
+      </div>
+    </ManagementModal>
   );
 }

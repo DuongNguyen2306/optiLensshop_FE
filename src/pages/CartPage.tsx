@@ -1,23 +1,43 @@
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { getCart } from "@/services/shop.service";
+import { toast } from "sonner";
+import LensParamsEditor from "@/components/cart/LensParamsEditor";
+import {
+  clearCart,
+  deleteCartComboItem,
+  deleteCartItem,
+  getCart,
+  updateCartComboItem,
+  updateCartItem,
+} from "@/services/shop.service";
 import { getApiErrorMessage } from "@/lib/api-error";
 import { cartItemsArrayFromResponse } from "@/lib/cart-utils";
 import {
-  cartLineImage,
-  cartLineProductName,
+  cartLineComboId,
+  cartLineId,
+  cartLineLensParams,
   cartLineQuantity,
-  cartLineUnitPrice,
   cartLineVariantLabel,
   cartRowRecord,
   formatPriceVnd,
+  getCartItemDisplayName,
+  getCartItemImage,
+  getCartItemUnitPrice,
+  isCartItemMissingPriceData,
+  isComboItem,
 } from "@/lib/cart-line-display";
 import StoreHeader from "@/components/home/store-header";
 import SiteFooter from "@/components/layout/site-footer";
 import { cn } from "@/lib/utils";
 
 export default function CartPage() {
+  const queryClient = useQueryClient();
+  const [lineLoading, setLineLoading] = useState<Record<string, boolean>>({});
+  const [lineError, setLineError] = useState<Record<string, string | null>>({});
+  const [editingLensKey, setEditingLensKey] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
+
   const cartQuery = useQuery({
     queryKey: ["cart"],
     queryFn: () => getCart(),
@@ -28,9 +48,81 @@ export default function CartPage() {
   const total = useMemo(() => {
     return rows.reduce((acc, item) => {
       const row = cartRowRecord(item);
-      return acc + cartLineUnitPrice(row) * cartLineQuantity(row);
+      return acc + getCartItemUnitPrice(row) * cartLineQuantity(row);
     }, 0);
   }, [rows]);
+
+  const setLineBusy = (key: string, busy: boolean) =>
+    setLineLoading((prev) => ({
+      ...prev,
+      [key]: busy,
+    }));
+
+  const setLineMessage = (key: string, message: string | null) =>
+    setLineError((prev) => ({
+      ...prev,
+      [key]: message,
+    }));
+
+  const patchLine = async (row: Record<string, unknown>, quantity: number, lensParams?: Record<string, unknown>) => {
+    const itemId = cartLineId(row);
+    const comboId = cartLineComboId(row);
+    const key = itemId || comboId;
+    if (!key) {
+      toast.error("Không xác định được dòng hàng để cập nhật.");
+      return;
+    }
+    if (quantity < 1) {
+      toast.error("Số lượng tối thiểu là 1.");
+      return;
+    }
+    setLineBusy(key, true);
+    setLineMessage(key, null);
+    try {
+      const payload = {
+        quantity,
+        lens_params: lensParams ?? cartLineLensParams(row),
+      };
+      if (comboId) {
+        await updateCartComboItem(comboId, payload);
+      } else if (itemId) {
+        await updateCartItem(itemId, payload);
+      }
+      await queryClient.invalidateQueries({ queryKey: ["cart"] });
+    } catch (e) {
+      const msg = getApiErrorMessage(e, "Không cập nhật được giỏ hàng.");
+      setLineMessage(key, msg);
+      toast.error(msg);
+    } finally {
+      setLineBusy(key, false);
+    }
+  };
+
+  const removeLine = async (row: Record<string, unknown>) => {
+    const itemId = cartLineId(row);
+    const comboId = cartLineComboId(row);
+    const key = itemId || comboId;
+    if (!key) {
+      return;
+    }
+    setLineBusy(key, true);
+    setLineMessage(key, null);
+    try {
+      if (comboId) {
+        await deleteCartComboItem(comboId);
+      } else if (itemId) {
+        await deleteCartItem(itemId);
+      }
+      await queryClient.invalidateQueries({ queryKey: ["cart"] });
+      toast.success("Đã xóa dòng hàng.");
+    } catch (e) {
+      const msg = getApiErrorMessage(e, "Không thể xóa dòng hàng.");
+      setLineMessage(key, msg);
+      toast.error(msg);
+    } finally {
+      setLineBusy(key, false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -71,15 +163,21 @@ export default function CartPage() {
               <ul className="divide-y divide-slate-100">
                 {rows.map((item, i) => {
                   const row = cartRowRecord(item);
-                  const key = String(row._id ?? row.id ?? i);
-                  const name = cartLineProductName(row);
+                  const itemId = cartLineId(row);
+                  const comboId = cartLineComboId(row);
+                  const key = String(itemId || comboId || row._id || row.id || i);
+                  const name = getCartItemDisplayName(row);
                   const varLabel = cartLineVariantLabel(row);
-                  const img = cartLineImage(row);
-                  const unit = cartLineUnitPrice(row);
+                  const img = getCartItemImage(row);
+                  const unit = getCartItemUnitPrice(row);
                   const qty = cartLineQuantity(row);
                   const subtotal = unit * qty;
+                  const busy = Boolean(lineLoading[key]);
+                  const lensOpen = editingLensKey === key;
+                  const missingPriceData = isCartItemMissingPriceData(row);
                   return (
-                    <li key={key} className="grid gap-3 py-4 md:grid-cols-[44px_1fr_120px_120px_120px] md:items-center">
+                    <li key={key} className="py-4">
+                      <div className="grid gap-3 md:grid-cols-[44px_1fr_120px_140px_140px] md:items-center">
                       <span className="hidden md:grid md:place-items-center">
                         <input type="checkbox" checked readOnly className="h-4 w-4 rounded border-slate-300 text-[#2bb6a3]" />
                       </span>
@@ -96,15 +194,71 @@ export default function CartPage() {
                         <div className="min-w-0">
                           <p className="line-clamp-2 text-sm font-semibold uppercase leading-snug text-slate-900">{name}</p>
                           {varLabel ? <p className="mt-1 text-xs text-slate-600">{varLabel}</p> : null}
+                          {isComboItem(row) && missingPriceData ? (
+                            <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                              Thiếu dữ liệu giá
+                            </span>
+                          ) : null}
                         </div>
                       </div>
                       <p className="text-sm font-semibold text-slate-900 md:text-center">{formatPriceVnd(unit)}</p>
                       <div className="inline-flex h-9 w-fit items-center border border-[#2bb6a3]/50 md:mx-auto">
-                        <span className="w-8 text-center text-slate-500">-</span>
+                        <button
+                          type="button"
+                          className="w-8 text-center text-slate-500 disabled:opacity-50"
+                          disabled={busy || qty <= 1}
+                          onClick={() => {
+                            void patchLine(row, qty - 1);
+                          }}
+                        >
+                          -
+                        </button>
                         <span className="w-8 text-center text-sm font-medium text-slate-900">{qty}</span>
-                        <span className="w-8 text-center text-[#2bb6a3]">+</span>
+                        <button
+                          type="button"
+                          className="w-8 text-center text-[#2bb6a3] disabled:opacity-50"
+                          disabled={busy}
+                          onClick={() => {
+                            void patchLine(row, qty + 1);
+                          }}
+                        >
+                          +
+                        </button>
                       </div>
                       <p className="text-lg font-bold text-slate-900 md:text-right">{formatPriceVnd(subtotal)}</p>
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                          onClick={() => setEditingLensKey((prev) => (prev === key ? null : key))}
+                        >
+                          {lensOpen ? "Ẩn lens params" : "Sửa lens params"}
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-full border border-red-200 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                          disabled={busy}
+                          onClick={() => {
+                            void removeLine(row);
+                          }}
+                        >
+                          {busy ? "Đang xử lý..." : "Xóa"}
+                        </button>
+                        {comboId ? <span className="text-xs text-slate-500">Combo item</span> : null}
+                      </div>
+                      {lineError[key] ? <p className="mt-2 text-xs text-red-600">{lineError[key]}</p> : null}
+                      {lensOpen ? (
+                        <div className="mt-2">
+                          <LensParamsEditor
+                            initialValue={cartLineLensParams(row)}
+                            submitting={busy}
+                            onSubmit={(lensParams) => {
+                              void patchLine(row, qty, lensParams);
+                            }}
+                          />
+                        </div>
+                      ) : null}
                     </li>
                   );
                 })}
@@ -113,9 +267,20 @@ export default function CartPage() {
               <div className="mt-4 flex flex-wrap gap-3 border-t border-slate-200 pt-4">
                 <button
                   type="button"
-                  className="inline-flex h-11 items-center justify-center rounded-md bg-slate-100 px-5 text-sm font-semibold text-slate-500"
+                  onClick={() => {
+                    setClearing(true);
+                    void clearCart()
+                      .then(async () => {
+                        toast.success("Đã xóa toàn bộ giỏ hàng.");
+                        await queryClient.invalidateQueries({ queryKey: ["cart"] });
+                      })
+                      .catch((e) => toast.error(getApiErrorMessage(e, "Không thể xóa toàn bộ giỏ hàng.")))
+                      .finally(() => setClearing(false));
+                  }}
+                  disabled={clearing}
+                  className="inline-flex h-11 items-center justify-center rounded-md bg-slate-100 px-5 text-sm font-semibold text-slate-500 disabled:opacity-60"
                 >
-                  Xóa sản phẩm đã chọn
+                  {clearing ? "Đang xóa..." : "Xóa tất cả"}
                 </button>
                 <Link
                   to="/"
@@ -153,38 +318,6 @@ export default function CartPage() {
           </div>
         )}
 
-        {rows.length > 0 ? (
-          <section className="mt-14">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-4xl font-bold uppercase tracking-wide text-slate-900">Sản phẩm có thể bạn quan tâm</h2>
-              <Link to="/" className="text-sm font-medium text-slate-500 hover:text-[#2bb6a3]">
-                Xem thêm
-              </Link>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {rows.slice(0, 3).map((item, i) => {
-                const row = cartRowRecord(item);
-                const key = `suggest-${String(row._id ?? row.id ?? i)}`;
-                const img = cartLineImage(row);
-                const name = cartLineProductName(row);
-                const price = cartLineUnitPrice(row);
-                return (
-                  <article key={key} className="border border-slate-200 bg-white p-3">
-                    <div className="h-36 overflow-hidden bg-slate-50">
-                      {img ? (
-                        <img src={img} alt={name} className="h-full w-full object-contain" />
-                      ) : (
-                        <span className="grid h-full place-items-center text-xs text-slate-400">Chưa có ảnh</span>
-                      )}
-                    </div>
-                    <p className="mt-3 line-clamp-2 text-sm font-semibold uppercase leading-snug text-slate-900">{name}</p>
-                    <p className="mt-1 text-lg font-bold text-[#2bb6a3]">{formatPriceVnd(price)}</p>
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-        ) : null}
       </main>
       <SiteFooter />
     </div>

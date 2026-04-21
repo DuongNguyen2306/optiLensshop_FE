@@ -110,6 +110,51 @@ export async function createProductVariant(productId: string, body: ProductVaria
   return data;
 }
 
+export async function updateProduct(
+  id: string,
+  body: Partial<{
+    name: string;
+    type: ProductType;
+    category: string;
+    brand: string;
+    model: string;
+    material: string;
+    description: string;
+  }>
+) {
+  const { data } = await axios.put<unknown>(`/products/${encodeURIComponent(id)}`, body);
+  return data;
+}
+
+export async function deleteProduct(id: string) {
+  const { data } = await axios.delete<unknown>(`/products/${encodeURIComponent(id)}`);
+  return data;
+}
+
+export async function toggleActiveProduct(id: string, active: boolean) {
+  const { data } = await axios.patch<unknown>(`/products/${encodeURIComponent(id)}/active`, { active });
+  return data;
+}
+
+export async function updateProductVariant(
+  productId: string,
+  variantId: string,
+  body: Partial<ProductVariantInput>
+) {
+  const { data } = await axios.put<unknown>(
+    `/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}`,
+    body
+  );
+  return data;
+}
+
+export async function deleteProductVariant(productId: string, variantId: string) {
+  const { data } = await axios.delete<unknown>(
+    `/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}`
+  );
+  return data;
+}
+
 export async function fetchCategories() {
   const { data } = await axios.get<unknown>("/categories");
   return asArray<Category>(data);

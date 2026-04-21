@@ -8,6 +8,11 @@ export interface User {
   role: string;
   status: string;
   is_email_verified: boolean;
+  first_name?: string;
+  last_name?: string;
+  dob?: string;
+  gender?: string;
+  avatar_url?: string;
 }
 
 /** Body BE cho POST /auth/login */
@@ -150,6 +155,12 @@ export const logout = createAsyncThunk<void, void, { rejectValue: string }>(
   "auth/logout",
   async (_, { rejectWithValue }) => {
     try {
+      // Best-effort: xóa giỏ hàng trước khi logout để lần đăng nhập sau bắt đầu từ giỏ trống.
+      try {
+        await axios.delete("/cart/clear");
+      } catch {
+        // Không chặn logout nếu clear cart thất bại (ví dụ role không dùng cart).
+      }
       await axios.post("/auth/logout");
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
@@ -227,6 +238,41 @@ export const resetPassword = createAsyncThunk<string, ResetPasswordPayload, { re
         { params: { token } }
       );
       return response.data.message ?? "Đặt lại mật khẩu thành công.";
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+export interface UpdateProfilePayload {
+  first_name?: string;
+  last_name?: string;
+  dob?: string;
+  gender?: string;
+  avatar?: File;
+}
+
+export const updateProfile = createAsyncThunk<User, UpdateProfilePayload, { rejectValue: string }>(
+  "auth/updateProfile",
+  async (payload, { rejectWithValue }) => {
+    try {
+      const formData = new FormData();
+      if (payload.avatar) formData.append("avatar", payload.avatar);
+      if (payload.first_name !== undefined) formData.append("first_name", payload.first_name.trim());
+      if (payload.last_name !== undefined) formData.append("last_name", payload.last_name.trim());
+      if (payload.dob) formData.append("dob", payload.dob);
+      if (payload.gender) formData.append("gender", payload.gender);
+
+      const response = await axios.put<unknown>("/users/me/profile", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      const data = response.data;
+      if (data && typeof data === "object") {
+        const rec = data as Record<string, unknown>;
+        if (rec.user && typeof rec.user === "object") return rec.user as User;
+        return data as User;
+      }
+      return rejectWithValue("Cập nhật hồ sơ thất bại.");
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
@@ -331,6 +377,11 @@ const authSlice = createSlice({
         state.isAuthenticated = false;
         state.error = action.payload ?? null;
         persistAuthCookie(null);
+      })
+      .addCase(updateProfile.fulfilled, (state, action) => {
+        if (state.user) {
+          state.user = { ...state.user, ...action.payload };
+        }
       });
   },
 });

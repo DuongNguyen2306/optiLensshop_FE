@@ -44,6 +44,17 @@ export default function OrderSuccessPage() {
           Bạn đã chọn thanh toán khi nhận hàng. Vui lòng chuẩn bị tiền mặt khi nhân viên giao hàng đến.
         </p>
         <div className="mt-8 flex flex-wrap justify-center gap-3">
+          {orderId ? (
+            <Link
+              to={`/orders/${encodeURIComponent(orderId)}`}
+              className={cn(
+                "inline-flex items-center justify-center rounded-lg px-4 py-2.5 text-sm font-semibold text-[#2bb6a3] shadow-sm transition",
+                "border border-[#2bb6a3] bg-white hover:bg-[#2bb6a3]/10"
+              )}
+            >
+              Xem chi tiết đơn
+            </Link>
+          ) : null}
           <Link
             to="/"
             className={cn(

@@ -7,7 +7,7 @@ const navItems = [
   { href: "#", label: "Gọng kính" },
   { href: "#", label: "Tròng kính" },
   { href: "#", label: "Kính râm" },
-  { href: "#", label: "Tìm cửa hàng" },
+  { to: "/combos", label: "Combo" },
   { href: "#", label: "Xem thêm" },
 ];
 
@@ -52,7 +52,7 @@ interface SiteHeaderProps {
   className?: string;
 }
 
-export default function SiteHeader({ rightSlot, cartCount = 1, className }: SiteHeaderProps) {
+export default function SiteHeader({ rightSlot, cartCount = 0, className }: SiteHeaderProps) {
   return (
     <header className={cn("border-b border-slate-100 bg-white", className)}>
       <div className="mx-auto flex max-w-6xl items-center gap-6 px-4 py-3 lg:px-6">
@@ -81,9 +81,11 @@ export default function SiteHeader({ rightSlot, cartCount = 1, className }: Site
               </Link>
               <button type="button" className="relative rounded-full p-2 transition hover:bg-slate-50" aria-label="Giỏ hàng">
                 <IconBag className="h-5 w-5" />
-                <span className="absolute right-1 top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-0.5 text-[10px] font-bold text-white">
-                  {cartCount > 9 ? "9+" : cartCount}
-                </span>
+                {cartCount > 0 ? (
+                  <span className="absolute right-1 top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-0.5 text-[10px] font-bold text-white">
+                    {cartCount > 9 ? "9+" : cartCount}
+                  </span>
+                ) : null}
               </button>
             </>
           )}

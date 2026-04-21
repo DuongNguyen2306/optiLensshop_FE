@@ -7,8 +7,7 @@ import { toast } from "sonner";
 import { login } from "@/store/slices/authSlice";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { emailSchema, passwordSchema } from "@/lib/auth-validation";
-import { canManageCatalog } from "@/lib/catalog-roles";
-import { canAccessStaffManagement } from "@/lib/management-roles";
+import { isInternalRole, isCustomerRole, roleDefaultPath } from "@/lib/role-routing";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -58,33 +57,37 @@ export default function LoginForm() {
         })
       ).unwrap();
       toast.success("Đăng nhập thành công!");
-      const wantsCatalogAdmin =
-        typeof fromPath === "string" && fromPath.startsWith("/admin/catalog");
-      const wantsManagement =
-        typeof fromPath === "string" && fromPath.startsWith("/admin/management");
-      const wantsStorefront =
-        typeof fromPath === "string" &&
-        (fromPath.startsWith("/products/") ||
-          fromPath === "/cart" ||
-          fromPath.startsWith("/checkout") ||
-          fromPath === "/order-success" ||
-          fromPath === "/orders");
+      const role = auth.user.role;
+      const targetByRole = roleDefaultPath(role);
 
-      if (wantsCatalogAdmin && canManageCatalog(auth.user.role)) {
-        navigate(fromPath, { replace: true });
-      } else if (wantsCatalogAdmin && !canManageCatalog(auth.user.role)) {
-        toast.info("Khu vực quản trị catalog chỉ dành cho manager hoặc admin.");
-        navigate("/", { replace: true });
-      } else if (wantsManagement && canAccessStaffManagement(auth.user.role)) {
-        navigate(fromPath, { replace: true });
-      } else if (wantsManagement && !canAccessStaffManagement(auth.user.role)) {
-        toast.info("Khu vực quản lý nhân sự chỉ dành cho manager hoặc admin.");
-        navigate("/", { replace: true });
-      } else if (wantsStorefront) {
-        navigate(fromPath, { replace: true });
-      } else {
-        navigate("/", { replace: true });
+      if (typeof fromPath !== "string" || !fromPath.trim()) {
+        navigate(targetByRole, { replace: true });
+        return;
       }
+
+      const wantsInternal = fromPath.startsWith("/admin");
+      const wantsCustomer =
+        fromPath === "/" ||
+        fromPath.startsWith("/products/") ||
+        fromPath.startsWith("/combos") ||
+        fromPath === "/cart" ||
+        fromPath.startsWith("/checkout") ||
+        fromPath === "/order-success" ||
+        fromPath === "/orders" ||
+        fromPath.startsWith("/orders/") ||
+        fromPath === "/profile";
+
+      if (wantsInternal && isInternalRole(role)) {
+        navigate(fromPath, { replace: true });
+        return;
+      }
+
+      if (wantsCustomer && isCustomerRole(role)) {
+        navigate(fromPath, { replace: true });
+        return;
+      }
+
+      navigate(targetByRole, { replace: true });
     } catch (submitError) {
       const errorMessage =
         typeof submitError === "string"

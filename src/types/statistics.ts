@@ -17,7 +17,7 @@ export interface StatisticsOverviewResponse {
   };
   orders?: {
     total?: number;
-    completed?: number;
+    delivered?: number;
     completion_rate?: number;
     by_status?: Record<string, number>;
   };

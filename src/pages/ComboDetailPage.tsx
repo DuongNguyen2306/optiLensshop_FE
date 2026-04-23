@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -9,8 +9,11 @@ import { getApiErrorMessage } from "@/lib/api-error";
 import { comboPreviewImage } from "@/lib/combo-display";
 import { fetchComboBySlug } from "@/services/combo.service";
 import { postCartItem } from "@/services/shop.service";
+import { postPreorderNow } from "@/services/order.service";
+import { getMyAddresses } from "@/services/users.service";
 import { useAppSelector } from "@/store/hooks";
 import { cn } from "@/lib/utils";
+import type { PaymentMethod, ShippingMethod } from "@/types/shop";
 
 function formatMoney(v: unknown): string {
   const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
@@ -52,7 +55,43 @@ function asNumber(value: unknown): number {
   return 0;
 }
 
+function asMaybeNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function readProfilePhone(userLike: unknown): string {
+  if (!userLike || typeof userLike !== "object") return "";
+  const u = userLike as Record<string, unknown>;
+  if (typeof u.phone === "string" && u.phone.trim()) return u.phone.trim();
+  const profile = u.profile;
+  if (profile && typeof profile === "object") {
+    const p = profile as Record<string, unknown>;
+    if (typeof p.phone === "string" && p.phone.trim()) return p.phone.trim();
+  }
+  return "";
+}
+
+function defaultAddressFromList(addresses: unknown): string {
+  if (!Array.isArray(addresses)) return "";
+  const list = addresses as Array<Record<string, unknown>>;
+  const preferred = list.find((addr) => Boolean(addr.is_default)) ?? list[0];
+  if (!preferred) return "";
+  const fullFromParts = [preferred.address_line, preferred.ward, preferred.district, preferred.province]
+    .filter((v) => typeof v === "string" && v.trim())
+    .join(", ");
+  const full = preferred.address ?? preferred.full_address ?? fullFromParts;
+  return typeof full === "string" ? full.trim() : "";
+}
+
 function renderStockType(stockType: string): string {
+  if (stockType === "unknown") {
+    return "Đang cập nhật";
+  }
   if (stockType === "preorder") {
     return "Pre-order";
   }
@@ -75,8 +114,11 @@ function stockPillClass(stockType: string): string {
 type VariantDetail = {
   productName: string;
   price: number;
-  stockQuantity: number;
+  stockQuantity: number | null;
+  reservedQuantity: number | null;
+  availableQuantity: number | null;
   stockType: string;
+  isActive: boolean;
   image: string;
 }
 
@@ -89,11 +131,17 @@ function getVariantDetail(
   const productImages = Array.isArray(product?.images) ? product.images.filter((v): v is string => typeof v === "string") : [];
   const variantImages = Array.isArray(variant?.images) ? variant.images.filter((v): v is string => typeof v === "string") : [];
 
+  const stockQuantity = asMaybeNumber(variant?.stock_quantity);
+  const reservedQuantity = asMaybeNumber(variant?.reserved_quantity);
+  const availableQuantity = stockQuantity != null && reservedQuantity != null ? Math.max(0, stockQuantity - reservedQuantity) : null;
   return {
     productName: asString(product?.name),
     price: asNumber(variant?.price),
-    stockQuantity: asNumber(variant?.stock_quantity),
-    stockType: asString(variant?.stock_type) || "in_stock",
+    stockQuantity,
+    reservedQuantity,
+    availableQuantity,
+    stockType: asString(variant?.stock_type) || "unknown",
+    isActive: Boolean(variant?.is_active ?? true),
     image: productImages[0] || variantImages[0] || "",
   };
 }
@@ -103,13 +151,23 @@ export default function ComboDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const token = useAppSelector((s) => s.auth.token);
+  const authUser = useAppSelector((s) => s.auth.user);
   const [qty, setQty] = useState(1);
+  const [preorderPhone, setPreorderPhone] = useState("");
+  const [preorderAddress, setPreorderAddress] = useState("");
+  const [preorderPaymentMethod, setPreorderPaymentMethod] = useState<PaymentMethod>("cod");
+  const [preorderShippingMethod, setPreorderShippingMethod] = useState<ShippingMethod>("ship");
   const [adding, setAdding] = useState(false);
 
   const detailQuery = useQuery({
     queryKey: ["combos", "detail", slug],
     enabled: Boolean(slug),
     queryFn: () => fetchComboBySlug(slug as string),
+  });
+  const addressesQuery = useQuery({
+    queryKey: ["users", "my-addresses", "combo-preorder"],
+    enabled: Boolean(token),
+    queryFn: () => getMyAddresses(),
   });
 
   const combo = useMemo(
@@ -120,10 +178,45 @@ export default function ComboDetailPage() {
   const previewImage = combo ? comboPreviewImage(combo) : "";
   const frameVariant = getVariantDetail(combo, "frame_variant_id");
   const lensVariant = getVariantDetail(combo, "lens_variant_id");
+  const comboActive = Boolean(combo?.is_active ?? combo?.active ?? true);
+  const comboStockResolved =
+    (frameVariant.stockType === "preorder" || frameVariant.stockType === "discontinued" || frameVariant.availableQuantity != null) &&
+    (lensVariant.stockType === "preorder" || lensVariant.stockType === "discontinued" || lensVariant.availableQuantity != null);
+  const comboAvailableQty =
+    frameVariant.availableQuantity != null && lensVariant.availableQuantity != null
+      ? Math.max(0, Math.min(frameVariant.availableQuantity, lensVariant.availableQuantity))
+      : 0;
+  const comboCanAddToCart =
+    comboStockResolved &&
+    comboActive &&
+    frameVariant.isActive &&
+    lensVariant.isActive &&
+    frameVariant.stockType !== "discontinued" &&
+    lensVariant.stockType !== "discontinued" &&
+    comboAvailableQty > 0;
+  const comboCanPreorder =
+    comboStockResolved &&
+    comboActive &&
+    frameVariant.isActive &&
+    lensVariant.isActive &&
+    frameVariant.stockType !== "discontinued" &&
+    lensVariant.stockType !== "discontinued" &&
+    (comboAvailableQty <= 0 || frameVariant.stockType === "preorder" || lensVariant.stockType === "preorder");
   const totalBefore = frameVariant.price + lensVariant.price;
   const comboPrice = combo ? asNumber(combo.combo_price) : 0;
   const saving = Math.max(0, totalBefore - comboPrice);
   const savingPct = totalBefore > 0 ? Math.round((saving / totalBefore) * 100) : 0;
+  const profilePhone = readProfilePhone(authUser);
+  const needPreorderPhoneInput = profilePhone.length === 0;
+
+  useEffect(() => {
+    if (!preorderAddress.trim()) {
+      const inferred = defaultAddressFromList(addressesQuery.data);
+      if (inferred) {
+        setPreorderAddress(inferred);
+      }
+    }
+  }, [addressesQuery.data, preorderAddress]);
 
   const onAdd = async () => {
     if (!cid) {
@@ -136,12 +229,61 @@ export default function ComboDetailPage() {
     }
     setAdding(true);
     try {
+      if (!comboCanAddToCart) {
+        toast.error("Combo này đang hết hàng, vui lòng đặt trước.");
+        return;
+      }
       await postCartItem({ combo_id: cid, quantity: Math.max(1, qty), lens_params: {} });
       await queryClient.invalidateQueries({ queryKey: ["cart"] });
       toast.success("Đã thêm combo vào giỏ hàng.");
       navigate("/cart");
     } catch (e) {
       toast.error(getApiErrorMessage(e, "Không thể thêm combo vào giỏ."));
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const onPreorder = async () => {
+    if (!cid) {
+      toast.error("Không xác định được combo.");
+      return;
+    }
+    if (!token) {
+      navigate("/login", { state: { from: `/combos/${slug}` } });
+      return;
+    }
+    if (!comboCanPreorder) {
+      toast.error("Combo chưa đủ điều kiện đặt trước.");
+      return;
+    }
+    const phoneForPreorder = (preorderPhone.trim() || profilePhone).trim();
+    if (!/^\d{9,11}$/.test(phoneForPreorder)) {
+      toast.error("Vui lòng nhập số điện thoại hợp lệ (9-11 số) để đặt trước.");
+      return;
+    }
+    if (!preorderAddress.trim()) {
+      toast.error("Vui lòng nhập địa chỉ giao hàng cho đơn đặt trước.");
+      return;
+    }
+    setAdding(true);
+    try {
+      const res = await postPreorderNow({
+        shipping_address: preorderAddress.trim(),
+        payment_method: preorderPaymentMethod,
+        shipping_method: preorderShippingMethod,
+        phone: phoneForPreorder,
+        items: [{ combo_id: cid, quantity: Math.max(1, qty), lens_params: {} }],
+      });
+      if (res.payUrl) {
+        window.location.assign(res.payUrl);
+        return;
+      }
+      toast.success(res.message ?? "Đã tạo đơn đặt trước cho combo. Đơn đang chờ shop xác nhận.");
+      const orderId = res.orderId;
+      navigate(orderId ? `/orders/${encodeURIComponent(orderId)}` : "/orders");
+    } catch (e) {
+      toast.error(getApiErrorMessage(e, "Không thể đặt trước combo."));
     } finally {
       setAdding(false);
     }
@@ -223,7 +365,9 @@ export default function ComboDetailPage() {
                           </p>
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
                             <span className="font-medium text-slate-700">{formatMoney(part.data.price)}</span>
-                            <span className="text-slate-500">• Tồn {part.data.stockQuantity}</span>
+                            <span className="text-slate-500">
+                              • Khả dụng {part.data.availableQuantity ?? "—"} (kho {part.data.stockQuantity ?? "—"} / giữ {part.data.reservedQuantity ?? "—"})
+                            </span>
                             <span className={cn("rounded-full px-2 py-0.5 font-semibold", stockPillClass(part.data.stockType))}>
                               {renderStockType(part.data.stockType)}
                             </span>
@@ -256,13 +400,66 @@ export default function ComboDetailPage() {
                     <Button
                       type="button"
                       className="h-12 w-full rounded-xl bg-[#2bb6a3] px-6 text-sm font-semibold tracking-wide transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#23a796] hover:shadow-lg"
-                      disabled={adding}
+                      disabled={adding || !comboCanAddToCart}
                       onClick={() => {
                         void onAdd();
                       }}
                     >
-                      {adding ? "Đang thêm..." : "Thêm combo vào giỏ"}
+                      {adding ? "Đang xử lý..." : !comboStockResolved ? "Đang cập nhật tồn kho" : comboCanAddToCart ? "Thêm combo vào giỏ" : "Hết hàng"}
                     </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-11 w-full rounded-xl border-[#2bb6a3] text-[#2bb6a3] hover:bg-[#2bb6a3]/10"
+                      disabled={adding || !comboCanPreorder}
+                      onClick={() => {
+                        void onPreorder();
+                      }}
+                    >
+                      {!comboStockResolved ? "Đang cập nhật tồn kho" : comboCanPreorder ? "Đặt trước (Pre-order)" : "Chưa thể đặt trước"}
+                    </Button>
+                    {comboCanPreorder ? (
+                      <div className="grid max-w-xl gap-2 rounded-lg border border-amber-200 bg-amber-50/40 p-3">
+                        <label className="text-xs font-semibold uppercase tracking-wide text-amber-800">Thông tin đặt trước combo</label>
+                        <input
+                          type="text"
+                          value={preorderAddress}
+                          onChange={(e) => setPreorderAddress(e.target.value)}
+                          placeholder="Địa chỉ giao hàng đầy đủ"
+                          className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none transition focus:border-[#2bb6a3]"
+                        />
+                        {needPreorderPhoneInput ? (
+                          <input
+                            type="tel"
+                            value={preorderPhone}
+                            onChange={(e) => setPreorderPhone(e.target.value)}
+                            placeholder="Số điện thoại 9-11 số"
+                            className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none transition focus:border-[#2bb6a3]"
+                          />
+                        ) : (
+                          <p className="text-xs text-slate-600">Số điện thoại nhận hàng: {profilePhone}</p>
+                        )}
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <select
+                            value={preorderPaymentMethod}
+                            onChange={(e) => setPreorderPaymentMethod(e.target.value as PaymentMethod)}
+                            className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none transition focus:border-[#2bb6a3]"
+                          >
+                            <option value="cod">Thanh toán COD</option>
+                            <option value="momo">Thanh toán MoMo</option>
+                            <option value="vnpay">Thanh toán VNPay</option>
+                          </select>
+                          <select
+                            value={preorderShippingMethod}
+                            onChange={(e) => setPreorderShippingMethod(e.target.value as ShippingMethod)}
+                            className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none transition focus:border-[#2bb6a3]"
+                          >
+                            <option value="ship">Giao tận nơi</option>
+                            <option value="pickup">Nhận tại cửa hàng</option>
+                          </select>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </div>

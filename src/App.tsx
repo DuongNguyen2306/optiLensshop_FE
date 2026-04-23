@@ -15,10 +15,13 @@ import StatisticsDashboardPage from "@/pages/admin/StatisticsDashboardPage";
 import InternalOrdersPage from "@/pages/admin/management/InternalOrdersPage";
 import ManagersManagementPage from "@/pages/admin/management/ManagersManagementPage";
 import StaffManagementPage from "@/pages/admin/management/StaffManagementPage";
+import InventoryReceiptsPage from "@/pages/admin/inventory/InventoryReceiptsPage";
+import InventoryLedgerPage from "@/pages/admin/inventory/InventoryLedgerPage";
 import ComboDetailPage from "@/pages/ComboDetailPage";
 import CombosPage from "@/pages/CombosPage";
 import ForbiddenPage from "@/pages/ForbiddenPage";
 import HomePage from "@/pages/HomePage";
+import ProductsPage from "@/pages/ProductsPage";
 import ProductDetailPage from "@/pages/ProductDetailPage";
 import CartPage from "@/pages/CartPage";
 import CheckoutPage from "@/pages/CheckoutPage";
@@ -45,6 +48,7 @@ export default function App() {
       <Routes>
         <Route element={<CustomerLayout />}>
           <Route path="/" element={<HomePage />} />
+          <Route path="/products" element={<ProductsPage />} />
           <Route path="/products/:slug" element={<ProductDetailPage />} />
           <Route path="/combos" element={<CombosPage />} />
           <Route path="/combos/:slug" element={<ComboDetailPage />} />
@@ -95,6 +99,8 @@ export default function App() {
                 <Route path="catalog/brands" element={<BrandsPage />} />
                 <Route path="catalog/models" element={<ModelsPage />} />
                 <Route path="catalog/statistics" element={<StatisticsDashboardPage />} />
+                <Route path="inventory/receipts" element={<InventoryReceiptsPage />} />
+                <Route path="inventory/ledger" element={<InventoryLedgerPage />} />
               </Route>
 
               <Route element={<RequireRole allowedRoles={["manager", "admin"]} message="Chỉ manager/admin được truy cập." />}>

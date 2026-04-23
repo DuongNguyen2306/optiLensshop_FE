@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getApiErrorMessage } from "@/lib/api-error";
-import { nextOpsStatuses, orderReadableStatus } from "@/lib/order-utils";
+import { nextStatusesByOrderType, normalizeOrderStatus, orderReadableStatus } from "@/lib/order-utils";
+import { normalizeRole } from "@/lib/role-routing";
+import { getOpsOrders } from "@/services/ops-orders.service";
 import { confirmOrder, fetchAllOrders, updateOrderStatus } from "@/services/order.service";
 import { useAppSelector } from "@/store/hooks";
 import type { CustomerOrderListItem } from "@/types/order";
@@ -16,6 +18,15 @@ function toOrderArray(data: unknown): CustomerOrderListItem[] {
     return [];
   }
   const o = data as Record<string, unknown>;
+  if (o.data && typeof o.data === "object" && !Array.isArray(o.data)) {
+    const nested = o.data as Record<string, unknown>;
+    if (Array.isArray(nested.items)) {
+      return nested.items as CustomerOrderListItem[];
+    }
+    if (Array.isArray(nested.orders)) {
+      return nested.orders as CustomerOrderListItem[];
+    }
+  }
   if (Array.isArray(o.items)) {
     return o.items as CustomerOrderListItem[];
   }
@@ -151,51 +162,179 @@ const STATUS_OPTIONS = [
   "pending",
   "confirmed",
   "processing",
-  "received",
   "manufacturing",
+  "received",
   "packed",
   "shipped",
   "delivered",
   "completed",
   "cancelled",
-];
+  "return_requested",
+  "returned",
+  "refunded",
+] as const;
+const OPS_STATUS_FILTER_OPTIONS = ["", "processing", "manufacturing", "received", "packed", "shipped", "delivered"] as const;
 const PAYMENT_METHOD_OPTIONS = ["", "cod", "momo"];
-const PAYMENT_STATUS_OPTIONS = ["", "pending", "paid", "failed", "cancelled", "refunded"];
+const PAYMENT_STATUS_OPTIONS = ["", "pending", "paid", "failed", "cancelled"];
+const OPS_MANAGED_STATUSES = new Set([
+  "processing",
+  "manufacturing",
+  "received",
+  "packed",
+  "shipped",
+  "delivered",
+  "completed",
+  "return_requested",
+]);
+const SALES_MANAGED_STATUSES = new Set(["confirmed", "cancelled", "returned", "refunded"]);
+
+function readLensWorksheet(order: CustomerOrderListItem): Record<string, unknown> | null {
+  const raw = (order as Record<string, unknown>).lens_worksheet;
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
+}
+
+function readItems(order: CustomerOrderListItem): Array<Record<string, unknown>> {
+  return Array.isArray(order.items) ? (order.items as Array<Record<string, unknown>>) : [];
+}
+
+function hasMeaningfulLensValue(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return false;
+  }
+  const rec = raw as Record<string, unknown>;
+  for (const [key, value] of Object.entries(rec)) {
+    if (key === "note") {
+      const note = typeof value === "string" ? value.trim().toLowerCase() : "";
+      if (note && note !== "không có ghi chú") {
+        return true;
+      }
+      continue;
+    }
+    if (typeof value === "number" && Number.isFinite(value) && value !== 0) {
+      return true;
+    }
+    if (typeof value === "string" && value.trim()) {
+      const n = Number(value.trim());
+      if (Number.isFinite(n)) {
+        if (n !== 0) {
+          return true;
+        }
+      } else {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function isLensTypeItem(item: Record<string, unknown>): boolean {
+  const variantRaw = item.variant_id;
+  if (!variantRaw || typeof variantRaw !== "object") {
+    return false;
+  }
+  const variant = variantRaw as Record<string, unknown>;
+  const productRaw = variant.product_id;
+  if (!productRaw || typeof productRaw !== "object") {
+    return false;
+  }
+  const product = productRaw as Record<string, unknown>;
+  return String(product.type ?? "").toLowerCase() === "lens";
+}
+
+function orderNeedsProcessing(order: CustomerOrderListItem): boolean {
+  const worksheet = readLensWorksheet(order);
+  if (hasMeaningfulLensValue(worksheet)) {
+    return true;
+  }
+  const items = readItems(order);
+  return items.some((item) => hasMeaningfulLensValue(item.lens_params) || isLensTypeItem(item));
+}
+
+function itemVariantInfo(item: Record<string, unknown>): { name: string; sku: string; price: number | null; image: string } {
+  const variantRaw = item.variant_id;
+  const variant = variantRaw && typeof variantRaw === "object" ? (variantRaw as Record<string, unknown>) : null;
+  const productRaw = variant?.product_id;
+  const product = productRaw && typeof productRaw === "object" ? (productRaw as Record<string, unknown>) : null;
+  const name = typeof product?.name === "string" ? product.name : "—";
+  const sku = typeof variant?.sku === "string" ? variant.sku : "—";
+  const price = typeof variant?.price === "number" ? variant.price : null;
+  const variantImage = Array.isArray(variant?.images) ? variant.images.find((x): x is string => typeof x === "string" && x.trim()) : "";
+  const productImage = Array.isArray(product?.images) ? product.images.find((x): x is string => typeof x === "string" && x.trim()) : "";
+  return { name, sku, price, image: variantImage || productImage || "" };
+}
 
 export default function InternalOrdersPage() {
   const queryClient = useQueryClient();
-  const role = useAppSelector((s) => (s.auth.user?.role ?? "").toLowerCase());
+  const role = useAppSelector((s) => normalizeRole(s.auth.user?.role) ?? "");
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState<string>("");
   const [paymentMethod, setPaymentMethod] = useState("");
   const [paymentStatus, setPaymentStatus] = useState("");
   const [confirmState, setConfirmState] = useState<{
     orderId: string;
-    mode: "sales_confirm" | "sales_reject" | "ops_status";
+    mode: "sales_confirm" | "sales_reject" | "ops_update";
     title: string;
     description?: string;
-    targetStatus?: string;
-    statusOptions?: string[];
+    nextStatus?: string;
   } | null>(null);
   const [rejectReason, setRejectReason] = useState("");
 
   const isSales = role === "sales";
-  const isOps = role === "operations";
+  const isOps = role === "operations" || role === "manager" || role === "admin";
+  const isOperationsRole = role === "operations";
+  const canUseSalesActions = role === "sales" || role === "manager" || role === "admin";
 
   const ordersQuery = useQuery({
-    queryKey: ["orders", "all", page, limit, status, paymentMethod, paymentStatus],
-    queryFn: () =>
-      fetchAllOrders({
+    queryKey: ["orders", isOps ? "ops" : "all", page, limit, status, paymentMethod, paymentStatus],
+    queryFn: async () => {
+      if (isOps) {
+        const normalizedStatus =
+          status === "processing" ||
+          status === "manufacturing" ||
+          status === "received" ||
+          status === "packed" ||
+          status === "shipped" ||
+          status === "delivered"
+            ? status
+            : undefined;
+        const opsData = await getOpsOrders({ page, pageSize: limit, status: normalizedStatus });
+        const opsRows = toOrderArray(opsData);
+        if (opsRows.length > 0 || normalizedStatus) {
+          return opsData;
+        }
+        // Fallback: some environments still expose full internal orders on /orders/all.
+        return fetchAllOrders({
+          page,
+          limit,
+          status: undefined,
+          payment_method: paymentMethod || undefined,
+          payment_status: paymentStatus || undefined,
+        });
+      }
+      return fetchAllOrders({
         page,
         limit,
         status: status || undefined,
         payment_method: paymentMethod || undefined,
         payment_status: paymentStatus || undefined,
-      }),
+      });
+    },
   });
 
-  const rows = useMemo(() => toOrderArray(ordersQuery.data), [ordersQuery.data]);
+  const rows = useMemo(() => {
+    const list = toOrderArray(ordersQuery.data);
+    if (!isOps) {
+      return list;
+    }
+    if (!status) {
+      return list;
+    }
+    return list.filter((order) => {
+      const s = normalizeOrderStatus(String(order.status ?? ""));
+      return s === status;
+    });
+  }, [ordersQuery.data, isOps, status]);
   const pagination = useMemo(
     () => toPagination(ordersQuery.data, page, limit, rows.length),
     [ordersQuery.data, page, limit, rows.length]
@@ -214,11 +353,10 @@ export default function InternalOrdersPage() {
   });
 
   const statusMutation = useMutation({
-    mutationFn: (payload: { orderId: string; status: string }) =>
-      updateOrderStatus(payload.orderId, { status: payload.status }),
+    mutationFn: (payload: { orderId: string; status: string }) => updateOrderStatus(payload.orderId, { status: payload.status }),
     onSuccess: () => {
       toast.success("Cập nhật trạng thái vận hành thành công.");
-      queryClient.invalidateQueries({ queryKey: ["orders", "all"] });
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
       setConfirmState(null);
     },
     onError: (e) => toast.error(getApiErrorMessage(e, "Không thể cập nhật trạng thái đơn.")),
@@ -228,7 +366,9 @@ export default function InternalOrdersPage() {
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-900">Đơn hàng nội bộ</h1>
-        <p className="mt-1 text-sm text-slate-600">Dành cho sales, operations, manager, admin.</p>
+        <p className="mt-1 text-sm text-slate-600">
+          {isOps ? "Ops workflow theo order_type: processing/manufacturing/received/packed/shipped/delivered." : "Luồng Sales xác nhận/từ chối đơn."}
+        </p>
       </div>
 
       <div className="mb-5 grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-5">
@@ -242,11 +382,17 @@ export default function InternalOrdersPage() {
               setPage(1);
             }}
           >
-            {STATUS_OPTIONS.map((s) => (
-              <option key={s || "all"} value={s}>
-                {s ? orderReadableStatus(s) : "Tất cả"}
-              </option>
-            ))}
+            {isOps
+              ? OPS_STATUS_FILTER_OPTIONS.map((s) => (
+                  <option key={s || "ops_all"} value={s}>
+                    {s ? orderReadableStatus(s) : "Tất cả đơn Ops liên quan"}
+                  </option>
+                ))
+              : STATUS_OPTIONS.map((s) => (
+                  <option key={s || "all"} value={s}>
+                    {s ? orderReadableStatus(s) : "Tất cả"}
+                  </option>
+                ))}
           </select>
         </div>
         <div className="space-y-1">
@@ -301,8 +447,8 @@ export default function InternalOrdersPage() {
           </select>
         </div>
         <div className="space-y-1">
-          <Label>Trang</Label>
-          <Input value={String(page)} readOnly />
+          <Label>Trang hiện tại</Label>
+          <div className="flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm">{page}</div>
         </div>
       </div>
 
@@ -327,16 +473,34 @@ export default function InternalOrdersPage() {
                 <th className="px-4 py-3">Trạng thái</th>
                 <th className="px-4 py-3">Thanh toán</th>
                 <th className="px-4 py-3">Ngày tạo</th>
+                <th className="px-4 py-3">Lens params</th>
+                <th className="px-4 py-3">Items</th>
                 <th className="px-4 py-3 text-right">Action</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((order) => {
                 const id = readOrderId(order);
-                const statusValue = String(order.status ?? "").toLowerCase();
+                const statusValue = normalizeOrderStatus(String(order.status ?? ""));
                 const payMethod = readPaymentMethod(order);
                 const payStatus = readPaymentStatus(order);
-                const nextStatuses = nextOpsStatuses(statusValue);
+                const lensWorksheet = readLensWorksheet(order);
+                const items = readItems(order);
+                const needsProcessing = orderNeedsProcessing(order);
+                const orderType = String(order.order_type ?? "stock").toLowerCase();
+                const allNextStatuses = nextStatusesByOrderType(orderType, statusValue);
+                const nextStatuses = allNextStatuses.filter((nextStatus) => {
+                  if (isOperationsRole) {
+                    return OPS_MANAGED_STATUSES.has(nextStatus);
+                  }
+                  if (canUseSalesActions) {
+                    return SALES_MANAGED_STATUSES.has(nextStatus);
+                  }
+                  return false;
+                });
+                const nextStatusesFiltered = needsProcessing
+                  ? nextStatuses
+                  : nextStatuses.filter((s) => s !== "manufacturing");
                 return (
                   <tr key={id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70">
                     <td className="px-4 py-3 font-mono text-xs text-slate-700">{id || "—"}</td>
@@ -347,6 +511,27 @@ export default function InternalOrdersPage() {
                     <td className="px-4 py-3">{orderReadableStatus(order.status)}</td>
                     <td className="px-4 py-3">{[payMethod || "—", payStatus || "—"].join(" / ")}</td>
                     <td className="px-4 py-3">{formatDate(order.created_at)}</td>
+                    <td className="px-4 py-3 text-xs text-slate-600">
+                      {lensWorksheet ? <pre className="max-w-[250px] overflow-auto whitespace-pre-wrap">{JSON.stringify(lensWorksheet, null, 2)}</pre> : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-slate-700">
+                      <div className="space-y-2">
+                        {items.map((item, idx) => {
+                          const info = itemVariantInfo(item);
+                          return (
+                            <div key={String(item._id ?? item.id ?? idx)} className="rounded border border-slate-200 p-2">
+                              <div className="flex items-center gap-2">
+                                {info.image ? <img src={info.image} alt={info.name} className="h-8 w-8 object-cover" /> : null}
+                                <div className="min-w-0">
+                                  <p className="truncate font-semibold text-slate-800">{info.name}</p>
+                                  <p className="text-slate-500">SKU: {info.sku} | Giá: {formatMoney(info.price ?? undefined)}</p>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <div className="inline-flex flex-wrap justify-end gap-2">
                         {isSales && statusValue === "pending" ? (
@@ -386,26 +571,25 @@ export default function InternalOrdersPage() {
                           </>
                         ) : null}
 
-                        {isOps && nextStatuses.length > 0 ? (
+                        {nextStatusesFiltered.map((nextStatus) => (
                           <Button
+                            key={`${id}_${nextStatus}`}
                             type="button"
                             size="sm"
                             className="h-8 bg-indigo-600 px-3 text-xs text-white hover:bg-indigo-700"
-                            onClick={() => {
-                              const first = nextStatuses[0];
+                            onClick={() =>
                               setConfirmState({
                                 orderId: id,
-                                mode: "ops_status",
-                                title: `Chuyển trạng thái sang "${orderReadableStatus(first)}"?`,
-                                description: "Hành động này sẽ cập nhật trạng thái vận hành của đơn.",
-                                targetStatus: first,
-                                statusOptions: nextStatuses,
-                              });
-                            }}
+                                  mode: "ops_update",
+                                title: `Chuyển sang "${orderReadableStatus(nextStatus)}"?`,
+                                description: `Đơn sẽ chuyển từ "${orderReadableStatus(statusValue)}" sang "${orderReadableStatus(nextStatus)}".`,
+                                  nextStatus,
+                              })
+                            }
                           >
-                            Cập nhật trạng thái
+                            {orderReadableStatus(nextStatus)}
                           </Button>
-                        ) : null}
+                        ))}
                       </div>
                     </td>
                   </tr>
@@ -458,31 +642,6 @@ export default function InternalOrdersPage() {
                 />
               </div>
             ) : null}
-            {confirmState?.title.toLowerCase().includes("chuyển trạng thái") ? (
-              <div className="space-y-1">
-                <Label>Trạng thái mới</Label>
-                <select
-                  className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
-                  value={confirmState.targetStatus ?? ""}
-                  onChange={(e) =>
-                    setConfirmState((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            targetStatus: e.target.value,
-                          }
-                        : prev
-                    )
-                  }
-                >
-                  {(confirmState.statusOptions ?? []).map((s) => (
-                    <option key={s} value={s}>
-                      {orderReadableStatus(s)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
           </div>
         }
         confirmLabel="Xác nhận"
@@ -507,8 +666,14 @@ export default function InternalOrdersPage() {
             });
             return;
           }
-          if (confirmState.mode === "ops_status" && confirmState.targetStatus) {
-            statusMutation.mutate({ orderId: confirmState.orderId, status: confirmState.targetStatus });
+          if (confirmState.mode === "ops_update") {
+            const targetStatus = confirmState.nextStatus;
+            if (!targetStatus) {
+              toast.error("Không xác định được trạng thái cần chuyển.");
+              return;
+            }
+            statusMutation.mutate({ orderId: confirmState.orderId, status: targetStatus });
+            return;
           }
         }}
       />

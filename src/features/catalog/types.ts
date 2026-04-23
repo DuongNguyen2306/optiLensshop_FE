@@ -64,5 +64,6 @@ export function entityId(e: { _id?: string; id?: string } | undefined): string {
   if (!e) {
     return "";
   }
-  return e._id ?? e.id ?? "";
+  const raw = e._id ?? e.id;
+  return typeof raw === "string" ? raw : "";
 }

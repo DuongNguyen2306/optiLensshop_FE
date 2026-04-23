@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getApiErrorMessage } from "@/lib/api-error";
+import { normalizeMongoId } from "@/lib/mongo-id";
 import { createCombo, deleteCombo, fetchCombos, updateCombo } from "@/services/combo.service";
 import type { Combo, ComboMutationBody } from "@/types/combo";
 import type { Variant } from "@/types/variant";
@@ -187,10 +188,8 @@ function ComboMutationModal({
     setDescription(String(initial?.description ?? ""));
     setComboPrice(String(initial?.combo_price ?? 0));
     setIsActive(Boolean(initial?.is_active ?? initial?.active ?? true));
-    const frameId =
-      typeof initial?.frame_variant_id === "string" ? initial.frame_variant_id : String(initial?.frame_variant_id?._id ?? "");
-    const lensId =
-      typeof initial?.lens_variant_id === "string" ? initial.lens_variant_id : String(initial?.lens_variant_id?._id ?? "");
+    const frameId = normalizeMongoId(initial?.frame_variant_id ?? null) ?? "";
+    const lensId = normalizeMongoId(initial?.lens_variant_id ?? null) ?? "";
     setSelectedFrameVariant(frameId ? ({ _id: frameId } as Variant) : null);
     setSelectedLensVariant(lensId ? ({ _id: lensId } as Variant) : null);
   }, [initial, open]);
@@ -219,8 +218,8 @@ function ComboMutationModal({
             }
             onClick={() => {
               const price = Number(comboPrice);
-              const frameVariantId = String(selectedFrameVariant?._id ?? selectedFrameVariant?.id ?? "").trim();
-              const lensVariantId = String(selectedLensVariant?._id ?? selectedLensVariant?.id ?? "").trim();
+              const frameVariantId = normalizeMongoId(selectedFrameVariant) ?? "";
+              const lensVariantId = normalizeMongoId(selectedLensVariant) ?? "";
               if (!name.trim() || Number.isNaN(price) || price < 0) {
                 toast.error("Tên combo và giá combo hợp lệ là bắt buộc.");
                 return;

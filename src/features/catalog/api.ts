@@ -33,7 +33,9 @@ function asArray<T>(data: unknown): T[] {
 export async function fetchProducts(params: {
   page?: number;
   limit?: number;
+  type?: string;
   search?: string;
+  category?: string;
   category_id?: string;
 }) {
   const { data } = await axios.get<unknown>("/products", { params });

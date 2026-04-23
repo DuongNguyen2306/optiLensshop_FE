@@ -1,7 +1,8 @@
 import type { ShopVariant } from "@/types/shop";
 
 export function variantMongoId(v: ShopVariant): string {
-  return String(v._id ?? v.id ?? "");
+  const raw = (v as Record<string, unknown>)._id ?? (v as Record<string, unknown>).id;
+  return typeof raw === "string" ? raw : "";
 }
 
 function parseNonNegativeInt(raw: unknown): number {

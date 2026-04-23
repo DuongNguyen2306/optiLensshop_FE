@@ -18,7 +18,9 @@ export function readPaymentReturnParams(params: URLSearchParams): PaymentReturnP
     params.get("orderID"),
     params.get("orderid"),
     params.get("order_id"),
-    params.get("id")
+    params.get("id"),
+    params.get("vnp_TxnRef"),
+    params.get("vnpTxnRef")
   );
   const message = firstNonEmpty(params.get("msg"), params.get("message"), params.get("error"), params.get("errorMessage"));
   return { orderId, message };

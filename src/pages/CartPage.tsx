@@ -30,6 +30,7 @@ import {
 import StoreHeader from "@/components/home/store-header";
 import SiteFooter from "@/components/layout/site-footer";
 import { cn } from "@/lib/utils";
+import type { LensParams } from "@/types/shop";
 
 export default function CartPage() {
   const queryClient = useQueryClient();
@@ -45,8 +46,8 @@ export default function CartPage() {
 
   const rows = cartItemsArrayFromResponse(cartQuery.data);
 
-  const total = useMemo(() => {
-    return rows.reduce((acc, item) => {
+  const total = useMemo<number>(() => {
+    return rows.reduce<number>((acc, item) => {
       const row = cartRowRecord(item);
       return acc + getCartItemUnitPrice(row) * cartLineQuantity(row);
     }, 0);
@@ -64,12 +65,13 @@ export default function CartPage() {
       [key]: message,
     }));
 
-  const patchLine = async (row: Record<string, unknown>, quantity: number, lensParams?: Record<string, unknown>) => {
-    const itemId = cartLineId(row);
+  const patchLine = async (row: Record<string, unknown>, quantity: number, lensParams?: LensParams | null) => {
     const comboId = cartLineComboId(row);
-    const key = itemId || comboId;
-    if (!key) {
-      toast.error("Không xác định được dòng hàng để cập nhật.");
+    const itemId = cartLineId(row);
+    const key = String(comboId || itemId || row._id || row.id || "");
+
+    if (!comboId && !itemId) {
+      toast.error("Không xác định được dòng hàng. Vui lòng tải lại trang.");
       return;
     }
     if (quantity < 1) {
@@ -81,11 +83,11 @@ export default function CartPage() {
     try {
       const payload = {
         quantity,
-        lens_params: lensParams ?? cartLineLensParams(row),
+        lens_params: lensParams === undefined ? cartLineLensParams(row) : lensParams,
       };
       if (comboId) {
         await updateCartComboItem(comboId, payload);
-      } else if (itemId) {
+      } else {
         await updateCartItem(itemId, payload);
       }
       await queryClient.invalidateQueries({ queryKey: ["cart"] });
@@ -174,6 +176,8 @@ export default function CartPage() {
                   const subtotal = unit * qty;
                   const busy = Boolean(lineLoading[key]);
                   const lensOpen = editingLensKey === key;
+                  const currentLensParams = cartLineLensParams(row);
+                  const hasLensParams = Object.keys(currentLensParams).length > 0;
                   const missingPriceData = isCartItemMissingPriceData(row);
                   return (
                     <li key={key} className="py-4">
@@ -233,7 +237,7 @@ export default function CartPage() {
                           className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
                           onClick={() => setEditingLensKey((prev) => (prev === key ? null : key))}
                         >
-                          {lensOpen ? "Ẩn lens params" : "Sửa lens params"}
+                          {lensOpen ? "Ẩn lens params" : hasLensParams ? "Sửa lens params" : "Nhập lens params"}
                         </button>
                         <button
                           type="button"
@@ -251,7 +255,7 @@ export default function CartPage() {
                       {lensOpen ? (
                         <div className="mt-2">
                           <LensParamsEditor
-                            initialValue={cartLineLensParams(row)}
+                            initialValue={currentLensParams}
                             submitting={busy}
                             onSubmit={(lensParams) => {
                               void patchLine(row, qty, lensParams);

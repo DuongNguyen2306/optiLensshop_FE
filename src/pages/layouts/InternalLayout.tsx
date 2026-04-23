@@ -32,6 +32,13 @@ function sectionLinks(role: string | undefined): { title: string; links: LinkIte
         { to: "/admin/catalog/statistics", label: "Báo cáo KPI" },
       ],
     });
+    sections.push({
+      title: "Kho",
+      links: [
+        { to: "/admin/inventory/receipts", label: "Phiếu nhập kho" },
+        { to: "/admin/inventory/ledger", label: "Sổ kho (Ledger)" },
+      ],
+    });
   }
 
   if (canManageCatalog(role)) {

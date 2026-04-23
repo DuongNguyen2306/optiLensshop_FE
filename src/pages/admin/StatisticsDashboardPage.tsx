@@ -262,7 +262,7 @@ export default function StatisticsDashboardPage() {
     {
       key: "delivered",
       label: "Đã giao",
-      value: valueAsNumber((byStatus as Record<string, number>).delivered) + valueAsNumber((byStatus as Record<string, number>).completed),
+      value: valueAsNumber((byStatus as Record<string, number>).delivered),
       color: "#10b981",
     },
     {

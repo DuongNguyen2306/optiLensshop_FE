@@ -4,11 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getApiErrorMessage } from "@/lib/api-error";
+import { normalizeMongoId } from "@/lib/mongo-id";
 import { fetchVariants } from "@/services/variants.service";
 import type { Variant, VariantType } from "@/types/variant";
 
 function variantId(v: Variant): string {
-  return String(v._id ?? v.id ?? "");
+  return normalizeMongoId(v) ?? "";
 }
 
 function productName(v: Variant): string {
@@ -129,9 +130,12 @@ export default function VariantSelect({
                 <ul className="divide-y divide-slate-100">
                   {items.map((v) => {
                     const id = variantId(v);
+                    if (!id) {
+                      return null;
+                    }
                     const active = id && id === selectedId;
                     return (
-                      <li key={id || Math.random()}>
+                      <li key={id}>
                         <button
                           type="button"
                           className={`w-full px-3 py-2 text-left text-sm hover:bg-slate-50 ${

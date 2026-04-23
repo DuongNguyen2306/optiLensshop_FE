@@ -8,6 +8,22 @@ export interface OrderPayment {
   paid_at?: string | null;
 }
 
+export type OrderType = "stock" | "prescription" | "pre_order";
+export type OrderStatus =
+  | "pending"
+  | "confirmed"
+  | "processing"
+  | "manufacturing"
+  | "received"
+  | "packed"
+  | "shipped"
+  | "delivered"
+  | "completed"
+  | "cancelled"
+  | "return_requested"
+  | "returned"
+  | "refunded";
+
 /** Một đơn trong danh sách lịch sử. */
 export interface CustomerOrderListItem {
   _id?: string;
@@ -71,9 +87,13 @@ export const ORDER_STATUS_FILTER_VALUES = [
   "confirmed",
   "processing",
   "manufacturing",
+  "received",
   "packed",
   "shipped",
   "delivered",
   "completed",
   "cancelled",
+  "return_requested",
+  "returned",
+  "refunded",
 ] as const;

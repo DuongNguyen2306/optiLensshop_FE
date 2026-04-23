@@ -4,11 +4,11 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { to: "/", label: "Trang chủ" },
-  { href: "#", label: "Gọng kính" },
-  { href: "#", label: "Tròng kính" },
-  { href: "#", label: "Kính râm" },
+  { to: "/products?type=frame", label: "Gọng kính" },
+  { to: "/products?type=lens", label: "Tròng kính" },
+  { to: "/products?search=kinh%20ram", label: "Kính râm" },
   { to: "/combos", label: "Combo" },
-  { href: "#", label: "Xem thêm" },
+  { to: "/products", label: "Xem thêm" },
 ];
 
 function IconSearch({ className }: { className?: string }) {
@@ -58,17 +58,11 @@ export default function SiteHeader({ rightSlot, cartCount = 0, className }: Site
       <div className="mx-auto flex max-w-6xl items-center gap-6 px-4 py-3 lg:px-6">
         <LogoMark />
         <nav className="hidden flex-1 items-center justify-center gap-6 text-sm text-slate-700 md:flex">
-          {navItems.map((item) =>
-            "to" in item ? (
-              <Link key={item.label} to={item.to} className="whitespace-nowrap transition hover:text-[#2bb6a3]">
-                {item.label}
-              </Link>
-            ) : (
-              <a key={item.label} href={item.href} className="whitespace-nowrap transition hover:text-[#2bb6a3]">
-                {item.label}
-              </a>
-            )
-          )}
+          {navItems.map((item) => (
+            <Link key={item.label} to={item.to} className="whitespace-nowrap transition hover:text-[#2bb6a3]">
+              {item.label}
+            </Link>
+          ))}
         </nav>
         <div className="ml-auto flex items-center gap-3 text-slate-700">
           <button type="button" className="rounded-full p-2 transition hover:bg-slate-50" aria-label="Tìm kiếm">

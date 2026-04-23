@@ -21,10 +21,10 @@ export interface AddCartItemBody {
   variant_id?: string;
   combo_id?: string;
   quantity: number;
-  lens_params?: LensParams;
+  lens_params?: LensParams | null;
 }
 
-export type PaymentMethod = "momo" | "cod";
+export type PaymentMethod = "momo" | "cod" | "vnpay";
 export type ShippingMethod = "ship" | "pickup";
 
 export interface LensParams {
@@ -46,13 +46,15 @@ export interface CheckoutItemPayload {
   variant_id?: string;
   combo_id?: string;
   quantity: number;
-  lens_params?: LensParams;
+  lens_params?: LensParams | null;
 }
 
 export interface CheckoutPayload {
   shipping_address: string | Record<string, unknown>;
+  phone?: string;
   payment_method: PaymentMethod;
   shipping_method: ShippingMethod;
+  deposit_rate?: number;
   discount_amount?: number;
   /** Không truyền hoặc [] = thanh toán cả giỏ */
   items?: CheckoutItemPayload[];

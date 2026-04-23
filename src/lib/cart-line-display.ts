@@ -1,4 +1,5 @@
 import { pickPrimaryImageFromRecord } from "@/lib/home-product-map";
+import { normalizeMongoId } from "@/lib/mongo-id";
 import { variantAttributesSummary, variantPrice, variantShortSku } from "@/lib/shop-utils";
 import type { ShopVariant } from "@/types/shop";
 
@@ -243,24 +244,91 @@ export function cartLineQuantity(row: Record<string, unknown>): number {
 }
 
 export function cartLineId(row: Record<string, unknown>): string {
-  const raw = row._id ?? row.id ?? row.item_id;
-  return typeof raw === "string" ? raw : "";
+  // 1. ID của cart item document (nếu BE trả _id riêng)
+  const docId = row._id ?? row.id ?? row.item_id ?? row.cart_item_id;
+  if (typeof docId === "string" && docId.trim()) return docId.trim();
+
+  // 2. variant_id là string
+  const vid = row.variant_id;
+  if (typeof vid === "string" && vid.trim()) return vid.trim();
+
+  // 3. variant_id là object populate → đọc _id bên trong
+  //    (BE populate: variant_id: { _id: "...", product_id: {...} })
+  if (vid && typeof vid === "object") {
+    const vo = vid as Record<string, unknown>;
+    const inner = vo._id ?? vo.id;
+    if (typeof inner === "string" && inner.trim()) return inner.trim();
+  }
+
+  return "";
 }
 
 export function cartLineComboId(row: Record<string, unknown>): string {
   const raw = row.combo_id;
-  if (typeof raw === "string") {
-    return raw;
-  }
+  // String trực tiếp
+  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  // Object populate → lấy _id bên trong
   if (raw && typeof raw === "object") {
     const o = raw as Record<string, unknown>;
     const id = o._id ?? o.id;
-    if (typeof id === "string") {
-      return id;
-    }
+    if (typeof id === "string" && (id as string).trim()) return (id as string).trim();
   }
-  const direct = row.comboId ?? row.combo_item_id;
-  return typeof direct === "string" ? direct : "";
+  // Các alias khác BE có thể dùng
+  const alt = row.comboId ?? row.combo_item_id ?? row.cart_combo_id;
+  if (typeof alt === "string" && alt.trim()) return alt.trim();
+  return "";
+}
+
+export function cartLineVariantEntityId(row: Record<string, unknown>): string {
+  const readLoose = (value: unknown): string => {
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const rec = value as Record<string, unknown>;
+      const raw = rec._id ?? rec.id;
+      if (typeof raw === "string" && raw.trim()) return raw.trim();
+    }
+    return "";
+  };
+  const directLoose = readLoose(row.variant_id);
+  if (directLoose) return directLoose;
+  const direct = normalizeMongoId(row.variant_id);
+  if (direct) return direct;
+  const variant = cartRowRecord(row.variant_id);
+  const nestedLoose = readLoose(variant);
+  if (nestedLoose) return nestedLoose;
+  const nested = normalizeMongoId(variant);
+  if (nested) return nested;
+  const altLoose = readLoose(row.variant);
+  if (altLoose) return altLoose;
+  const alt = normalizeMongoId(row.variant);
+  if (alt) return alt;
+  return "";
+}
+
+export function cartLineComboEntityId(row: Record<string, unknown>): string {
+  const readLoose = (value: unknown): string => {
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const rec = value as Record<string, unknown>;
+      const raw = rec._id ?? rec.id;
+      if (typeof raw === "string" && raw.trim()) return raw.trim();
+    }
+    return "";
+  };
+  const directLoose = readLoose(row.combo_id);
+  if (directLoose) return directLoose;
+  const direct = normalizeMongoId(row.combo_id);
+  if (direct) return direct;
+  const combo = cartRowRecord(row.combo_id);
+  const nestedLoose = readLoose(combo);
+  if (nestedLoose) return nestedLoose;
+  const nested = normalizeMongoId(combo);
+  if (nested) return nested;
+  const altLoose = readLoose(row.combo);
+  if (altLoose) return altLoose;
+  const alt = normalizeMongoId(row.combo);
+  if (alt) return alt;
+  return "";
 }
 
 export function cartLineLensParams(row: Record<string, unknown>): Record<string, unknown> {

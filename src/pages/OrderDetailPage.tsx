@@ -1,13 +1,15 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { CheckCircle2, Circle, Loader2, PhoneCall } from "lucide-react";
 import StoreHeader from "@/components/home/store-header";
 import SiteFooter from "@/components/layout/site-footer";
 import { Button } from "@/components/ui/button";
 import { getApiErrorMessage } from "@/lib/api-error";
 import { canCustomerCancelOrder, orderReadableStatus } from "@/lib/order-utils";
 import { cancelMyOrder, fetchMyOrderDetail } from "@/services/order.service";
+import { createMyAddress } from "@/services/users.service";
 import type { CustomerOrderListItem, OrderLineItem } from "@/types/order";
 
 function readOrderFromDetail(data: unknown): CustomerOrderListItem | null {
@@ -113,21 +115,70 @@ function paymentInfo(order: CustomerOrderListItem | null): { method: string; sta
   };
 }
 
-const CUSTOMER_TIMELINE = [
-  "pending",
-  "confirmed",
-  "processing",
-  "manufacturing",
-  "received",
-  "packed",
-  "shipped",
-  "delivered",
-  "completed",
-];
+function paymentPhase(order: CustomerOrderListItem | null): string {
+  if (!order || typeof order !== "object") return "";
+  const raw = (order as Record<string, unknown>).payment_phase;
+  return typeof raw === "string" ? raw : "";
+}
+
+const COMPACT_TIMELINE = [
+  { key: "ordered", label: "Đã đặt hàng" },
+  { key: "preparing", label: "Đang chuẩn bị" },
+  { key: "shipping", label: "Đang giao" },
+  { key: "success", label: "Thành công" },
+] as const;
+
+function compactTimelineIndex(status: string): number {
+  const s = status.toLowerCase();
+  if (s === "pending") return 0;
+  if (
+    s === "confirmed" ||
+    s === "processing" ||
+    s === "fulfilled" ||
+    s === "manufacturing" ||
+    s === "received" ||
+    s === "packed"
+  )
+    return 1;
+  if (s === "shipped" || s === "shipping") return 2;
+  if (s === "delivered" || s === "completed" || s === "return_requested" || s === "returned" || s === "refunded")
+    return 3;
+  return 0;
+}
+
+function lensParamValue(raw: unknown): string {
+  if (raw == null) return "—";
+  if (typeof raw === "number" && Number.isFinite(raw)) return String(raw);
+  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  return "—";
+}
+
+function lensParamsCard(params: Record<string, unknown> | undefined) {
+  if (!params) {
+    return <span className="text-xs text-slate-400">—</span>;
+  }
+  const sphR = lensParamValue(params.sph_right ?? params.right_sph ?? params.sphR);
+  const cylR = lensParamValue(params.cyl_right ?? params.right_cyl ?? params.cylR);
+  const axR = lensParamValue(params.axis_right ?? params.right_axis ?? params.axR);
+  const sphL = lensParamValue(params.sph_left ?? params.left_sph ?? params.sphL);
+  const cylL = lensParamValue(params.cyl_left ?? params.left_cyl ?? params.cylL);
+  const axL = lensParamValue(params.axis_left ?? params.left_axis ?? params.axL);
+  const pd = lensParamValue(params.pd ?? params.pupillary_distance);
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-[11px] leading-5 text-slate-700">
+      <p className="font-mono">Phải (R): SPH {sphR}, CYL {cylR}, AX {axR}</p>
+      <p className="font-mono">Trái (L): SPH {sphL}, CYL {cylL}, AX {axL}</p>
+      <p className="font-mono">PD: {pd} mm</p>
+    </div>
+  );
+}
 
 export default function OrderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
+  const [openAddressModal, setOpenAddressModal] = useState(false);
+  const [newAddress, setNewAddress] = useState("");
+  const [localShippingAddress, setLocalShippingAddress] = useState("");
 
   const detailQuery = useQuery({
     queryKey: ["orders", "detail", id],
@@ -144,6 +195,16 @@ export default function OrderDetailPage() {
     },
     onError: (e) => toast.error(getApiErrorMessage(e, "Không thể hủy đơn.")),
   });
+  const addAddressMutation = useMutation({
+    mutationFn: (address: string) => createMyAddress({ address }),
+    onSuccess: () => {
+      setLocalShippingAddress(newAddress.trim());
+      setOpenAddressModal(false);
+      setNewAddress("");
+      toast.success("Đã lưu địa chỉ nhận hàng mới.");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e, "Không thể cập nhật địa chỉ.")),
+  });
 
   const order = useMemo(() => readOrderFromDetail(detailQuery.data), [detailQuery.data]);
   const oid = readOrderId(order);
@@ -151,7 +212,12 @@ export default function OrderDetailPage() {
   const canCancel = canCustomerCancelOrder(order);
   const pay = paymentInfo(order);
   const currentStatus = String(order?.status ?? "").toLowerCase();
-  const timelineIndex = CUSTOMER_TIMELINE.indexOf(currentStatus);
+  const timelineIndex = compactTimelineIndex(currentStatus);
+  const isPreOrder = String(order?.order_type ?? "").toLowerCase() === "pre_order";
+  const payPhase = paymentPhase(order);
+  const rawShippingAddress = shippingAddress(order);
+  const shippingAddressDisplay = localShippingAddress || rawShippingAddress;
+  const missingShippingAddress = isPreOrder && rawShippingAddress.toLowerCase() === "khách hàng cập nhật sau";
 
   return (
     <div className="min-h-screen bg-white">
@@ -183,7 +249,24 @@ export default function OrderDetailPage() {
         ) : (
           <div className="space-y-6">
             <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              {isPreOrder ? (
+                <p className="mb-3 inline-flex rounded-full bg-teal-600 px-3 py-1 text-xs font-bold tracking-wide text-white">
+                  ĐƠN HÀNG ĐẶT TRƯỚC
+                </p>
+              ) : null}
               <h1 className="text-xl font-bold text-slate-900">Đơn #{oid || "—"}</h1>
+              {isPreOrder ? (
+                <p className="mt-2 inline-flex items-start gap-2 rounded-lg bg-teal-50 px-3 py-2 text-sm text-teal-700">
+                  <PhoneCall className="mt-0.5 h-4 w-4 animate-bounce" />
+                  Cảm ơn bạn! Yêu cầu của bạn đã được tiếp nhận. Chuyên viên sẽ gọi điện xác nhận thông số kỹ thuật trong
+                  vòng 15-30 phút.
+                </p>
+              ) : null}
+              {isPreOrder && payPhase ? (
+                <p className="mt-2 text-xs text-slate-600">
+                  Giai đoạn thanh toán hiện tại: <span className="font-semibold text-slate-800">{payPhase}</span>
+                </p>
+              ) : null}
               <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
                 <p>
                   <span className="text-slate-500">Trạng thái: </span>
@@ -202,25 +285,53 @@ export default function OrderDetailPage() {
                   <strong>{formatMoney(order.final_amount ?? order.total_amount)}</strong>
                 </p>
               </div>
-              <p className="mt-3 text-sm text-slate-700">
-                <span className="text-slate-500">Địa chỉ giao hàng: </span>
-                {shippingAddress(order)}
-              </p>
+              {missingShippingAddress ? (
+                <div className="mt-3">
+                  <Button
+                    type="button"
+                    className="rounded-lg bg-amber-500 text-white hover:bg-amber-600"
+                    onClick={() => setOpenAddressModal(true)}
+                  >
+                    Cập nhật địa chỉ nhận hàng ngay
+                  </Button>
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-slate-700">
+                  <span className="text-slate-500">Địa chỉ giao hàng: </span>
+                  {shippingAddressDisplay}
+                </p>
+              )}
             </section>
 
             <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
               <h2 className="text-lg font-semibold text-slate-900">Timeline</h2>
-              <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
-                {CUSTOMER_TIMELINE.map((s, idx) => {
-                  const active = timelineIndex >= idx && timelineIndex !== -1;
+              <div className="mt-4 grid grid-cols-2 gap-y-4 sm:grid-cols-4 sm:gap-x-2">
+                {COMPACT_TIMELINE.map((step, idx) => {
+                  const done = idx < timelineIndex;
+                  const processing = idx === timelineIndex;
+                  const active = done || processing;
                   return (
-                    <div
-                      key={s}
-                      className={`rounded-lg border px-3 py-2 text-xs font-medium ${
-                        active ? "border-[#2bb6a3] bg-[#2bb6a3]/10 text-[#2bb6a3]" : "border-slate-200 text-slate-500"
-                      }`}
-                    >
-                      {orderReadableStatus(s)}
+                    <div key={step.key} className="relative px-1 text-center">
+                      {idx < COMPACT_TIMELINE.length - 1 ? (
+                        <span
+                          className={`absolute left-[calc(50%+14px)] top-2.5 hidden h-[1px] w-[calc(100%-14px)] sm:block ${
+                            done ? "bg-teal-500" : "bg-slate-200"
+                          }`}
+                        />
+                      ) : null}
+                      <div className="mx-auto flex h-5 w-5 items-center justify-center">
+                        {done ? (
+                          <CheckCircle2 className="h-5 w-5 text-teal-600" />
+                        ) : processing ? (
+                          <Loader2 className="h-5 w-5 animate-spin text-teal-600" />
+                        ) : (
+                          <Circle className="h-5 w-5 text-slate-300" />
+                        )}
+                      </div>
+                      <p className={`mt-1 text-xs font-medium ${active ? "text-teal-700" : "text-slate-500"}`}>{step.label}</p>
+                      {isPreOrder && step.key === "preparing" ? (
+                        <p className="mt-1 text-[11px] text-slate-500">Mài lắp tròng kính, kiểm định QC</p>
+                      ) : null}
                     </div>
                   );
                 })}
@@ -258,7 +369,7 @@ export default function OrderDetailPage() {
                             <td className="px-3 py-2">{formatMoney(unitPrice)}</td>
                             <td className="px-3 py-2 font-medium text-slate-900">{formatMoney(lineTotal)}</td>
                             <td className="px-3 py-2 text-xs text-slate-600">
-                              {item.lens_params ? JSON.stringify(item.lens_params) : "—"}
+                              {lensParamsCard(item.lens_params)}
                             </td>
                           </tr>
                         );
@@ -271,6 +382,42 @@ export default function OrderDetailPage() {
           </div>
         )}
       </main>
+      {openAddressModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+          <div className="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-slate-900">Cập nhật địa chỉ nhận hàng</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Địa chỉ này sẽ được lưu vào sổ địa chỉ để Sales liên hệ xác nhận giao hàng.
+            </p>
+            <textarea
+              value={newAddress}
+              onChange={(e) => setNewAddress(e.target.value)}
+              placeholder="Số nhà, đường, phường/xã, quận/huyện, tỉnh/thành..."
+              className="mt-3 min-h-[110px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-500"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setOpenAddressModal(false)}>
+                Hủy
+              </Button>
+              <Button
+                type="button"
+                className="bg-amber-500 text-white hover:bg-amber-600"
+                disabled={addAddressMutation.isPending}
+                onClick={() => {
+                  const val = newAddress.trim();
+                  if (!val) {
+                    toast.error("Vui lòng nhập địa chỉ nhận hàng.");
+                    return;
+                  }
+                  addAddressMutation.mutate(val);
+                }}
+              >
+                {addAddressMutation.isPending ? "Đang lưu..." : "Lưu địa chỉ"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <SiteFooter />
     </div>
   );

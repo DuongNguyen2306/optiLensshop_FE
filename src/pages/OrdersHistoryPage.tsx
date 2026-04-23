@@ -21,16 +21,23 @@ const STATUS_LABELS: Record<string, string> = {
   pending: "Chờ xác nhận",
   confirmed: "Đã xác nhận",
   processing: "Đang xử lý",
-  manufacturing: "Đang gia công",
+  fulfilled: "Hoàn tất gia công",
+  manufacturing: "Đang gia công tròng",
+  received: "Hàng đã về kho",
   packed: "Đã đóng gói",
-  shipped: "Đang giao",
+  shipping: "Đang giao",
+  shipped: "Đang giao hàng",
   delivered: "Đã giao",
   completed: "Hoàn tất",
   cancelled: "Đã hủy",
+  return_requested: "Yêu cầu trả hàng",
+  returned: "Đã trả hàng",
+  refunded: "Đã hoàn tiền",
 };
 
 const PAYMENT_LABELS: Record<string, string> = {
   momo: "MoMo",
+  vnpay: "VNPay",
   cod: "Khi nhận hàng",
 };
 
@@ -38,10 +45,14 @@ const PAYMENT_LABELS: Record<string, string> = {
 function statusBadgeCls(status: string | undefined): string {
   const s = (status ?? "").toLowerCase();
   if (s === "cancelled") return "bg-red-50 text-red-700 border-red-200";
-  if (s === "completed" || s === "delivered") return "bg-emerald-50 text-emerald-700 border-emerald-200";
-  if (s === "shipped" || s === "packed") return "bg-sky-50 text-sky-700 border-sky-200";
+  if (s === "refunded" || s === "returned") return "bg-rose-50 text-rose-700 border-rose-200";
+  if (s === "return_requested") return "bg-orange-50 text-orange-700 border-orange-200";
+  if (s === "completed") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (s === "delivered") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (s === "shipped" || s === "shipping") return "bg-sky-50 text-sky-700 border-sky-200";
+  if (s === "packed" || s === "received") return "bg-indigo-50 text-indigo-700 border-indigo-200";
   if (s === "pending") return "bg-amber-50 text-amber-800 border-amber-200";
-  if (s === "confirmed" || s === "processing" || s === "manufacturing")
+  if (s === "confirmed" || s === "processing" || s === "manufacturing" || s === "fulfilled")
     return "bg-violet-50 text-violet-700 border-violet-200";
   return "bg-slate-100 text-slate-600 border-slate-200";
 }
@@ -110,6 +121,11 @@ function MobileCard({
           {STATUS_LABELS[(order.status ?? "").toLowerCase()] ?? order.status}
         </span>
       </div>
+      {String(order.order_type ?? "").toLowerCase() === "pre_order" ? (
+        <p className="mt-2 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+          Pre-order: đang chờ shop xác nhận/gia công
+        </p>
+      ) : null}
       <div className="mt-3 flex items-center justify-between">
         <div>
           <p className="text-xs text-slate-500">{payMethod(order)}</p>
@@ -320,6 +336,11 @@ export default function OrdersHistoryPage() {
                           <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold", statusBadgeCls(order.status))}>
                             {STATUS_LABELS[(order.status ?? "").toLowerCase()] ?? order.status}
                           </span>
+                          {String(order.order_type ?? "").toLowerCase() === "pre_order" ? (
+                            <span className="ml-2 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                              pre-order
+                            </span>
+                          ) : null}
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-end gap-2">

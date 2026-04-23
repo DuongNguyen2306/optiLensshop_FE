@@ -1,5 +1,6 @@
 import axios from "@/lib/axios";
 import { extractPayUrlFromCheckoutResponse, unwrapCheckoutResponseRoot } from "@/lib/checkout-utils";
+import { normalizeMongoId } from "@/lib/mongo-id";
 import type {
   CustomerOrderListItem,
   CustomerOrdersListResponse,
@@ -7,6 +8,96 @@ import type {
   OrderDetailResponse,
 } from "@/types/order";
 import type { CheckoutPayload, CheckoutResponse } from "@/types/shop";
+
+function toFiniteNumberOrDefault(value: unknown, fallback = 0): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const n = Number(value.trim());
+    if (Number.isFinite(n)) return n;
+  }
+  return fallback;
+}
+
+function normalizeLensParams(raw: unknown): Record<string, number | string> | null {
+  if (raw == null) {
+    return null;
+  }
+  const src = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const normalized = {
+    sph_right: toFiniteNumberOrDefault(src.sph_right, 0),
+    sph_left: toFiniteNumberOrDefault(src.sph_left, 0),
+    cyl_right: toFiniteNumberOrDefault(src.cyl_right, 0),
+    cyl_left: toFiniteNumberOrDefault(src.cyl_left, 0),
+    axis_right: toFiniteNumberOrDefault(src.axis_right, 0),
+    axis_left: toFiniteNumberOrDefault(src.axis_left, 0),
+    add_right: toFiniteNumberOrDefault(src.add_right, 0),
+    add_left: toFiniteNumberOrDefault(src.add_left, 0),
+    pd: toFiniteNumberOrDefault(src.pd, 0),
+    pupillary_distance: toFiniteNumberOrDefault(src.pupillary_distance, 0),
+    note: typeof src.note === "string" ? src.note.trim() : "",
+  };
+  const numericAllZero =
+    normalized.sph_right === 0 &&
+    normalized.sph_left === 0 &&
+    normalized.cyl_right === 0 &&
+    normalized.cyl_left === 0 &&
+    normalized.axis_right === 0 &&
+    normalized.axis_left === 0 &&
+    normalized.add_right === 0 &&
+    normalized.add_left === 0 &&
+    normalized.pd === 0 &&
+    normalized.pupillary_distance === 0;
+  const noteNormalized = normalized.note.toLowerCase();
+  const noteIsDefaultOrEmpty = !normalized.note || noteNormalized === "không có ghi chú";
+  if (numericAllZero && noteIsDefaultOrEmpty) {
+    return null;
+  }
+  return {
+    ...normalized,
+    note: normalized.note || "Không có ghi chú",
+  };
+}
+
+function normalizeCheckoutItems(items: CheckoutPayload["items"]): CheckoutPayload["items"] {
+  if (!Array.isArray(items)) {
+    return items;
+  }
+  return items.map((item) => {
+    if (!item || typeof item !== "object") {
+      throw new Error("items[] không hợp lệ.");
+    }
+    const quantity = Number(item.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw new Error("quantity không hợp lệ.");
+    }
+    if (item.variant_id && item.combo_id) {
+      throw new Error("Mỗi item chỉ được chứa một trong hai: variant_id hoặc combo_id.");
+    }
+    if (item.variant_id) {
+      const variantId = normalizeMongoId(item.variant_id);
+      if (!variantId) {
+        throw new Error("variant_id không hợp lệ (yêu cầu Mongo ObjectId).");
+      }
+      return {
+        variant_id: String(variantId),
+        quantity: Math.floor(quantity),
+        lens_params: normalizeLensParams(item.lens_params),
+      };
+    }
+    if (item.combo_id) {
+      const comboId = normalizeMongoId(item.combo_id);
+      if (!comboId) {
+        throw new Error("combo_id không hợp lệ (yêu cầu Mongo ObjectId).");
+      }
+      return {
+        combo_id: String(comboId),
+        quantity: Math.floor(quantity),
+        lens_params: normalizeLensParams(item.lens_params),
+      };
+    }
+    throw new Error("items[] thiếu variant_id hoặc combo_id.");
+  });
+}
 
 export async function fetchMyOrders(params: {
   page?: number;
@@ -22,11 +113,14 @@ export async function fetchMyOrders(params: {
   return normalizeOrdersResponse(data);
 }
 
-/** BE checkout chỉ chấp nhận `momo` | `cod` chữ thường. */
-function normalizePaymentMethodForApi(raw: CheckoutPayload["payment_method"] | string): "momo" | "cod" {
+/** BE checkout chỉ chấp nhận method chữ thường. */
+function normalizePaymentMethodForApi(raw: CheckoutPayload["payment_method"] | string): "momo" | "cod" | "vnpay" {
   const s = String(raw).toLowerCase().trim();
   if (s === "momo") {
     return "momo";
+  }
+  if (s === "vnpay") {
+    return "vnpay";
   }
   return "cod";
 }
@@ -48,8 +142,77 @@ export async function postCheckout(body: CheckoutPayload): Promise<CheckoutRespo
   const payload: CheckoutPayload = {
     ...body,
     payment_method: normalizePaymentMethodForApi(body.payment_method),
+    items: normalizeCheckoutItems(body.items),
   };
   const { data } = await axios.post<unknown>("/orders/checkout", payload);
+  const rec = unwrapCheckoutResponseRoot(data);
+  const extracted = extractPayUrlFromCheckoutResponse(data);
+  const shallow = typeof rec.payUrl === "string" ? rec.payUrl.trim() : "";
+  const merged = (shallow && /^https?:\/\//i.test(shallow) ? shallow : undefined) ?? extracted;
+  const payUrl = merged && merged.length > 0 ? merged : undefined;
+  const order = rec.order;
+  const directOrderId =
+    typeof rec.orderId === "string"
+      ? rec.orderId.trim()
+      : typeof rec.order_id === "string"
+        ? rec.order_id.trim()
+        : undefined;
+  const orderId = directOrderId || readOrderIdFromUnknown(order);
+  return {
+    message: typeof rec.message === "string" ? rec.message : undefined,
+    order,
+    orderId,
+    payUrl,
+  };
+}
+
+/** POST /orders/preorder-now cho luồng mua trước không qua cart. */
+export async function postPreorderNow(
+  body: Omit<CheckoutPayload, "items"> & {
+    items: Array<
+      | { variant_id: string; quantity: number; lens_params?: Record<string, unknown> | null }
+      | { combo_id: string; quantity: number; lens_params?: Record<string, unknown> | null }
+    >;
+  }
+): Promise<CheckoutResponse> {
+  const normalizedItems = body.items.map((item) => {
+    const quantity = Number(item.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw new Error("quantity không hợp lệ.");
+    }
+    if ("variant_id" in item && "combo_id" in (item as Record<string, unknown>)) {
+      throw new Error("Mỗi item chỉ được chứa một trong hai: variant_id hoặc combo_id.");
+    }
+    if ("variant_id" in item) {
+      const variantId = normalizeMongoId(item.variant_id);
+      if (!variantId) {
+        throw new Error("variant_id không hợp lệ (yêu cầu Mongo ObjectId).");
+      }
+      return {
+        variant_id: String(variantId),
+        quantity: Math.floor(quantity),
+        lens_params: normalizeLensParams(item.lens_params),
+      };
+    }
+    if ("combo_id" in item) {
+      const comboId = normalizeMongoId(item.combo_id);
+      if (!comboId) {
+        throw new Error("combo_id không hợp lệ (yêu cầu Mongo ObjectId).");
+      }
+      return {
+        combo_id: String(comboId),
+        quantity: Math.floor(quantity),
+        lens_params: normalizeLensParams(item.lens_params),
+      };
+    }
+    throw new Error("items[] thiếu variant_id hoặc combo_id.");
+  });
+  const payload = {
+    ...body,
+    payment_method: normalizePaymentMethodForApi(body.payment_method),
+    items: normalizedItems,
+  };
+  const { data } = await axios.post<unknown>("/orders/preorder-now", payload);
   const rec = unwrapCheckoutResponseRoot(data);
   const extracted = extractPayUrlFromCheckoutResponse(data);
   const shallow = typeof rec.payUrl === "string" ? rec.payUrl.trim() : "";
@@ -134,9 +297,17 @@ export async function updateOrderStatus(
     note?: string;
   }
 ): Promise<Record<string, unknown>> {
-  const { data } = await axios.put<unknown>(`/orders/${encodeURIComponent(orderId)}/status`, payload);
-  if (data && typeof data === "object") {
-    return data as Record<string, unknown>;
+  try {
+    const { data } = await axios.patch<unknown>(`/api/orders/${encodeURIComponent(orderId)}/status`, payload);
+    if (data && typeof data === "object") {
+      return data as Record<string, unknown>;
+    }
+    return {};
+  } catch {
+    const { data } = await axios.put<unknown>(`/orders/${encodeURIComponent(orderId)}/status`, payload);
+    if (data && typeof data === "object") {
+      return data as Record<string, unknown>;
+    }
   }
   return {};
 }

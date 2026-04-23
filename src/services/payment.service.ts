@@ -8,6 +8,10 @@ export interface CreateMomoPaymentResponse {
   payUrl?: string;
 }
 
+export interface CreateVnpayPaymentBody {
+  orderId: string;
+}
+
 export interface PaymentConfirmResponse {
   message?: string;
   orderId?: string;
@@ -53,6 +57,17 @@ export async function createMomoPayment(body: CreateMomoPaymentBody): Promise<Cr
   const payload = { orderId: body.orderId };
   const { data } = await axios.post<unknown>("/momo/create", payload);
   return { payUrl: readPayUrl(data) };
+}
+
+export async function createVnpayPayment(body: CreateVnpayPaymentBody): Promise<CreateMomoPaymentResponse> {
+  const payload = { orderId: body.orderId };
+  const { data } = await axios.post<unknown>("/vnpay/create", payload);
+  return { payUrl: readPayUrl(data) };
+}
+
+export async function verifyVnpayPayment(params: Record<string, string>) {
+  const { data } = await axios.get<unknown>("/vnpay/verify", { params });
+  return normalizeConfirmResponse(data);
 }
 
 export async function confirmPaymentSuccess(orderId: string): Promise<PaymentConfirmResponse> {

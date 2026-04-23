@@ -1,4 +1,5 @@
 import Axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
+import { normalizeMongoId } from "@/lib/mongo-id";
 
 const apiBase =
   import.meta.env.VITE_API_BASE_URL ??
@@ -14,6 +15,30 @@ type StoreLike = {
 
 let injectedStore: StoreLike | null = null;
 let unauthorizedHandler: (() => void) | null = null;
+const ID_FIELD_KEYS = new Set(["variant_id", "combo_id", "frame_variant_id", "lens_variant_id"]);
+
+function sanitizeIdFields(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeIdFields(item));
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  const rec = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, raw] of Object.entries(rec)) {
+    if (ID_FIELD_KEYS.has(key) && raw != null) {
+      const normalized = normalizeMongoId(raw);
+      if (!normalized) {
+        throw new Error(`${key} không hợp lệ (phải là Mongo ObjectId).`);
+      }
+      out[key] = normalized;
+      continue;
+    }
+    out[key] = sanitizeIdFields(raw);
+  }
+  return out;
+}
 
 export const axios = Axios.create({
   baseURL: apiBase,
@@ -38,6 +63,11 @@ axios.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   }
   if (config.data instanceof FormData) {
     delete config.headers["Content-Type"];
+  } else if (config.data && typeof config.data === "object") {
+    config.data = sanitizeIdFields(config.data);
+  }
+  if (config.params && typeof config.params === "object") {
+    config.params = sanitizeIdFields(config.params) as InternalAxiosRequestConfig["params"];
   }
   return config;
 });

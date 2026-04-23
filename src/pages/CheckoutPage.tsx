@@ -5,20 +5,26 @@ import { toast } from "sonner";
 import type { Province, District, Ward } from "sub-vn";
 import { getCart } from "@/services/shop.service";
 import { postCheckout } from "@/services/order.service";
-import { createMomoPayment } from "@/services/payment.service";
+import { createMomoPayment, createVnpayPayment } from "@/services/payment.service";
+import { getMyAddresses } from "@/services/users.service";
 import { getApiErrorMessage } from "@/lib/api-error";
 import type { PaymentMethod, ShippingMethod } from "@/types/shop";
+import type { UserAddress } from "@/types/user-profile";
 import StoreHeader from "@/components/home/store-header";
 import SiteFooter from "@/components/layout/site-footer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useAppSelector } from "@/store/hooks";
 import { cartItemsArrayFromResponse } from "@/lib/cart-utils";
 import {
+  cartLineComboEntityId,
   cartLineImage,
+  cartLineLensParams,
   cartLineProductName,
   cartLineQuantity,
   cartLineUnitPrice,
+  cartLineVariantEntityId,
   cartLineVariantLabel,
   cartRowRecord,
   formatPriceVnd,
@@ -28,6 +34,7 @@ import {
 
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
   { value: "momo", label: "Ví MoMo" },
+  { value: "vnpay", label: "VNPay" },
   { value: "cod", label: "Thanh toán khi nhận hàng (COD)" },
 ];
 
@@ -45,12 +52,35 @@ function orderIdFromCheckoutOrder(order: unknown): string | null {
   return typeof raw === "string" && raw.trim() ? raw.trim() : null;
 }
 
+function fullAddressFromUserAddress(addr: UserAddress): string {
+  const fullFromParts = [addr.address_line, addr.ward, addr.district, addr.province].filter(Boolean).join(", ");
+  const full = addr.address ?? addr.full_address ?? fullFromParts;
+  return typeof full === "string" ? full.trim() : "";
+}
+
+function readProfilePhone(userLike: unknown): string {
+  if (!userLike || typeof userLike !== "object") return "";
+  const u = userLike as Record<string, unknown>;
+  if (typeof u.phone === "string" && u.phone.trim()) return u.phone.trim();
+  const profile = u.profile;
+  if (profile && typeof profile === "object") {
+    const p = profile as Record<string, unknown>;
+    if (typeof p.phone === "string" && p.phone.trim()) return p.phone.trim();
+  }
+  return "";
+}
+
 export default function CheckoutPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const authUser = useAppSelector((s) => s.auth.user);
   const cartQuery = useQuery({
     queryKey: ["cart"],
     queryFn: () => getCart(),
+  });
+  const addressesQuery = useQuery({
+    queryKey: ["users", "my-addresses"],
+    queryFn: () => getMyAddresses(),
   });
   const rows = cartItemsArrayFromResponse(cartQuery.data);
   const subtotal = useMemo<number>(() => {
@@ -61,6 +91,8 @@ export default function CheckoutPage() {
   }, [rows]);
 
   const [addressLine, setAddressLine] = useState("");
+  const [selectedAddress, setSelectedAddress] = useState("");
+  const [showAddressEditor, setShowAddressEditor] = useState(false);
 
   // Province
   const [allProvinces, setAllProvinces] = useState<Province[]>([]);
@@ -81,6 +113,7 @@ export default function CheckoutPage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cod");
   const [shippingMethod, setShippingMethod] = useState<ShippingMethod>("ship");
   const [submitting, setSubmitting] = useState(false);
+  const [phone, setPhone] = useState("");
 
   // Lazy-load sub-vn chỉ khi trang checkout mount → không ảnh hưởng main bundle
   useEffect(() => {
@@ -89,6 +122,28 @@ export default function CheckoutPage() {
       setLoadingAddress(false);
     });
   }, []);
+
+  useEffect(() => {
+    const addresses = addressesQuery.data ?? [];
+    if (addresses.length === 0 || selectedAddress) {
+      return;
+    }
+    const preferred = addresses.find((addr) => addr.is_default) ?? addresses[0];
+    const full = fullAddressFromUserAddress(preferred);
+    if (full) {
+      setSelectedAddress(full);
+      setShowAddressEditor(false);
+    }
+  }, [addressesQuery.data, selectedAddress]);
+
+  useEffect(() => {
+    if (!phone.trim()) {
+      const profilePhone = readProfilePhone(authUser);
+      if (profilePhone) {
+        setPhone(profilePhone);
+      }
+    }
+  }, [authUser, phone]);
 
   const handleProvinceChange = (code: string) => {
     import("sub-vn").then((subVn) => {
@@ -115,7 +170,26 @@ export default function CheckoutPage() {
 
   const shippingFee = shippingMethod === "ship" ? 30000 : 0;
   const grandTotal = subtotal + shippingFee;
-  const fullAddress = [addressLine.trim(), wardName, districtName, provinceName].filter(Boolean).join(", ");
+  const customAddress = [addressLine.trim(), wardName, districtName, provinceName].filter(Boolean).join(", ");
+  const usingCustomAddress = showAddressEditor || !selectedAddress;
+  const fullAddress = usingCustomAddress ? customAddress : selectedAddress;
+  const buildCheckoutItemsFromRows = (sourceRows: unknown[]) =>
+    sourceRows
+      .map((item) => {
+        const row = cartRowRecord(item);
+        const quantity = cartLineQuantity(row);
+        const lensParams = cartLineLensParams(row);
+        const comboId = cartLineComboEntityId(row);
+        if (comboId) {
+          return { combo_id: comboId, quantity, lens_params: lensParams };
+        }
+        const variantId = cartLineVariantEntityId(row);
+        if (variantId) {
+          return { variant_id: variantId, quantity, lens_params: lensParams };
+        }
+        return null;
+      })
+      .filter((x): x is { variant_id: string; quantity: number; lens_params?: Record<string, unknown> } | { combo_id: string; quantity: number; lens_params?: Record<string, unknown> } => x !== null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -123,37 +197,71 @@ export default function CheckoutPage() {
       toast.error("Giỏ hàng đang trống, chưa thể thanh toán.");
       return;
     }
-    if (!provinceName) {
-      toast.error("Vui lòng chọn Tỉnh/Thành phố.");
-      return;
-    }
-    if (!districtName) {
-      toast.error("Vui lòng chọn Quận/Huyện.");
-      return;
-    }
-    if (!wardName) {
-      toast.error("Vui lòng chọn Phường/Xã.");
+    if (usingCustomAddress) {
+      if (!provinceName) {
+        toast.error("Vui lòng chọn Tỉnh/Thành phố.");
+        return;
+      }
+      if (!districtName) {
+        toast.error("Vui lòng chọn Quận/Huyện.");
+        return;
+      }
+      if (!wardName) {
+        toast.error("Vui lòng chọn Phường/Xã.");
+        return;
+      }
+    } else if (!selectedAddress.trim()) {
+      toast.error("Vui lòng chọn địa chỉ giao hàng.");
       return;
     }
     if (!paymentMethod) {
       toast.error("Vui lòng chọn hình thức thanh toán.");
       return;
     }
+    if (!/^\d{9,11}$/.test(phone.trim())) {
+      toast.error("Vui lòng nhập số điện thoại hợp lệ (9-11 số).");
+      return;
+    }
+    const checkoutItems = buildCheckoutItemsFromRows(rows);
+    if (checkoutItems.length !== rows.length) {
+      toast.error("Giỏ hàng có dòng dữ liệu lỗi (thiếu variant/combo id). Vui lòng xóa dòng lỗi và thử lại.");
+      return;
+    }
     setSubmitting(true);
     try {
+      const freshCart = await getCart();
+      const freshRows = cartItemsArrayFromResponse(freshCart);
+      if (freshRows.length === 0) {
+        toast.error("Giỏ hàng trống hoặc đã thay đổi theo phiên đăng nhập hiện tại. Vui lòng thêm sản phẩm lại.");
+        await queryClient.invalidateQueries({ queryKey: ["cart"] });
+        return;
+      }
+      const freshCheckoutItems = buildCheckoutItemsFromRows(freshRows);
+      if (freshCheckoutItems.length !== freshRows.length) {
+        toast.error("Có item trong giỏ không hợp lệ (thiếu variant_id/combo_id). Vui lòng kiểm tra lại giỏ hàng.");
+        await queryClient.invalidateQueries({ queryKey: ["cart"] });
+        return;
+      }
       const res = await postCheckout({
         shipping_address: fullAddress,
+        phone: phone.trim(),
         payment_method: paymentMethod,
         shipping_method: shippingMethod,
+        items: freshCheckoutItems,
       });
 
       let payUrl = typeof res.payUrl === "string" ? res.payUrl.trim() : "";
 
-      if (paymentMethod === "momo") {
+      if (paymentMethod === "momo" || paymentMethod === "vnpay") {
         if (!payUrl && res.orderId) {
           try {
-            const momo = await createMomoPayment({ orderId: res.orderId });
-            payUrl = typeof momo.payUrl === "string" ? momo.payUrl.trim() : "";
+            if (paymentMethod === "momo") {
+              const momo = await createMomoPayment({ orderId: res.orderId });
+              payUrl = typeof momo.payUrl === "string" ? momo.payUrl.trim() : "";
+            } else {
+              const vnpay = await createVnpayPayment({ orderId: res.orderId });
+              payUrl = typeof vnpay.payUrl === "string" ? vnpay.payUrl.trim() : "";
+            }
           } catch {
             // fallback về thông báo thân thiện bên dưới
           }
@@ -163,7 +271,9 @@ export default function CheckoutPage() {
           return;
         }
         toast.error(
-          "Hiện không mở được trang thanh toán MoMo. Bạn thử lại sau hoặc chọn trả tiền khi nhận hàng. Nếu vẫn lỗi, vui lòng gọi hotline để được hỗ trợ."
+          paymentMethod === "momo"
+            ? "Hiện không mở được trang thanh toán MoMo. Bạn thử lại sau hoặc chọn trả tiền khi nhận hàng. Nếu vẫn lỗi, vui lòng gọi hotline để được hỗ trợ."
+            : "Hiện không mở được trang thanh toán VNPay. Bạn thử lại sau hoặc chọn trả tiền khi nhận hàng. Nếu vẫn lỗi, vui lòng gọi hotline để được hỗ trợ."
         );
         return;
       }
@@ -188,59 +298,100 @@ export default function CheckoutPage() {
             <section>
               <h1 className="text-4xl font-bold uppercase tracking-wide text-slate-900">Thông tin giao hàng</h1>
               <div className="mt-4 space-y-3">
-                <Label htmlFor="address-line">Địa chỉ giao hàng</Label>
+                <Label htmlFor="checkout-phone">Số điện thoại nhận hàng</Label>
                 <Input
-                  id="address-line"
-                  value={addressLine}
-                  onChange={(e) => setAddressLine(e.target.value)}
-                  placeholder="Số nhà, tên đường"
+                  id="checkout-phone"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="09xxxxxxxx"
                 />
-                {/* Tỉnh / Thành phố */}
-                <select
-                  className="flex h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm disabled:bg-slate-50 disabled:text-slate-400"
-                  value={provinceCode}
-                  disabled={loadingAddress}
-                  onChange={(e) => handleProvinceChange(e.target.value)}
-                >
-                  <option value="">
-                    {loadingAddress ? "Đang tải dữ liệu..." : "Chọn Tỉnh / Thành phố"}
-                  </option>
-                  {allProvinces.map((p) => (
-                    <option key={p.code} value={p.code}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
+                <Label>Địa chỉ giao hàng</Label>
+                {addressesQuery.isPending ? (
+                  <p className="text-sm text-slate-500">Đang tải địa chỉ của bạn...</p>
+                ) : null}
+                {!usingCustomAddress && selectedAddress ? (
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-sm text-slate-800">{selectedAddress}</p>
+                  </div>
+                ) : null}
+                <div className="flex flex-wrap items-center gap-2">
+                  {!usingCustomAddress && selectedAddress ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setShowAddressEditor(true)}
+                      className="h-9 rounded-full"
+                    >
+                      Chọn địa chỉ khác
+                    </Button>
+                  ) : null}
+                  {usingCustomAddress && selectedAddress ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setShowAddressEditor(false)}
+                      className="h-9 rounded-full"
+                    >
+                      Dùng địa chỉ mặc định
+                    </Button>
+                  ) : null}
+                </div>
+                {usingCustomAddress ? (
+                  <>
+                    <Input
+                      id="address-line"
+                      value={addressLine}
+                      onChange={(e) => setAddressLine(e.target.value)}
+                      placeholder="Số nhà, tên đường"
+                    />
+                    {/* Tỉnh / Thành phố */}
+                    <select
+                      className="flex h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm disabled:bg-slate-50 disabled:text-slate-400"
+                      value={provinceCode}
+                      disabled={loadingAddress}
+                      onChange={(e) => handleProvinceChange(e.target.value)}
+                    >
+                      <option value="">
+                        {loadingAddress ? "Đang tải dữ liệu..." : "Chọn Tỉnh / Thành phố"}
+                      </option>
+                      {allProvinces.map((p) => (
+                        <option key={p.code} value={p.code}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
 
-                {/* Quận / Huyện */}
-                <select
-                  className="flex h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm disabled:bg-slate-50 disabled:text-slate-400"
-                  value={districtCode}
-                  disabled={!provinceCode}
-                  onChange={(e) => handleDistrictChange(e.target.value)}
-                >
-                  <option value="">Chọn Quận / Huyện</option>
-                  {districts.map((d) => (
-                    <option key={d.code} value={d.code}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
+                    {/* Quận / Huyện */}
+                    <select
+                      className="flex h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm disabled:bg-slate-50 disabled:text-slate-400"
+                      value={districtCode}
+                      disabled={!provinceCode}
+                      onChange={(e) => handleDistrictChange(e.target.value)}
+                    >
+                      <option value="">Chọn Quận / Huyện</option>
+                      {districts.map((d) => (
+                        <option key={d.code} value={d.code}>
+                          {d.name}
+                        </option>
+                      ))}
+                    </select>
 
-                {/* Phường / Xã */}
-                <select
-                  className="flex h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm disabled:bg-slate-50 disabled:text-slate-400"
-                  value={wardName}
-                  disabled={!districtCode}
-                  onChange={(e) => setWardName(e.target.value)}
-                >
-                  <option value="">Chọn Phường / Xã</option>
-                  {wards.map((w) => (
-                    <option key={w.code} value={w.name}>
-                      {w.name}
-                    </option>
-                  ))}
-                </select>
+                    {/* Phường / Xã */}
+                    <select
+                      className="flex h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm disabled:bg-slate-50 disabled:text-slate-400"
+                      value={wardName}
+                      disabled={!districtCode}
+                      onChange={(e) => setWardName(e.target.value)}
+                    >
+                      <option value="">Chọn Phường / Xã</option>
+                      {wards.map((w) => (
+                        <option key={w.code} value={w.name}>
+                          {w.name}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                ) : null}
               </div>
             </section>
 
@@ -266,8 +417,8 @@ export default function CheckoutPage() {
                   </label>
                 ))}
               </div>
-              {paymentMethod === "momo" ? (
-                <p className="mt-3 text-sm text-slate-600">Sau khi xác nhận đơn, hệ thống sẽ chuyển bạn sang cổng MoMo để hoàn tất thanh toán.</p>
+              {paymentMethod === "momo" || paymentMethod === "vnpay" ? (
+                <p className="mt-3 text-sm text-slate-600">Sau khi xác nhận đơn, hệ thống sẽ chuyển bạn sang cổng thanh toán để hoàn tất giao dịch.</p>
               ) : (
                 <p className="mt-3 text-sm text-slate-600">Bạn thanh toán khi nhận hàng (COD), không cần chuyển sang cổng thanh toán.</p>
               )}
@@ -296,7 +447,13 @@ export default function CheckoutPage() {
                 disabled={submitting || rows.length === 0 || cartQuery.isPending}
                 className="h-11 rounded-full bg-[#2bb6a3] px-8 text-sm font-semibold uppercase tracking-wide text-white hover:brightness-[0.98]"
               >
-                {submitting ? "Đang đặt hàng..." : paymentMethod === "momo" ? "Thanh toán bằng MoMo" : "Đặt hàng (COD)"}
+                {submitting
+                  ? "Đang đặt hàng..."
+                  : paymentMethod === "momo"
+                    ? "Thanh toán bằng MoMo"
+                    : paymentMethod === "vnpay"
+                      ? "Thanh toán bằng VNPay"
+                      : "Đặt hàng (COD)"}
               </Button>
               <Link
                 to="/cart"
@@ -355,7 +512,7 @@ export default function CheckoutPage() {
                     <p className="font-semibold text-slate-800">Thông tin giao hàng</p>
                     <p className="mt-1">{fullAddress || "Chưa nhập địa chỉ"}</p>
                     <p className="mt-1">
-                      Thanh toán: {paymentMethod === "cod" ? "COD" : "MoMo"} | Vận chuyển:{" "}
+                      Thanh toán: {paymentMethod === "cod" ? "COD" : paymentMethod === "vnpay" ? "VNPay" : "MoMo"} | Vận chuyển:{" "}
                       {shippingMethod === "ship" ? "Giao tận nơi" : "Nhận tại cửa hàng"}
                     </p>
                   </div>

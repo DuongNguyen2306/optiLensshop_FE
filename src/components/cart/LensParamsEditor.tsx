@@ -37,7 +37,7 @@ export default function LensParamsEditor({
 }: {
   initialValue?: LensParams;
   submitting?: boolean;
-  onSubmit: (value: LensParams) => void;
+  onSubmit: (value: LensParams | null) => void;
 }) {
   const [form, setForm] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +87,7 @@ export default function LensParamsEditor({
           className="bg-[#2bb6a3]"
           onClick={() => {
             const payload: LensParams = {};
+            let hasAnyMeaningfulValue = false;
             for (const key of NUMERIC_FIELDS) {
               const raw = (form[key] ?? "").trim();
               if (!raw) {
@@ -98,12 +99,19 @@ export default function LensParamsEditor({
                 return;
               }
               payload[key] = n;
+              if (n !== 0) {
+                hasAnyMeaningfulValue = true;
+              }
             }
-            if ((form.note ?? "").trim()) {
-              payload.note = form.note.trim();
+            const note = (form.note ?? "").trim();
+            if (note) {
+              payload.note = note;
+              if (note.toLowerCase() !== "không có ghi chú") {
+                hasAnyMeaningfulValue = true;
+              }
             }
             setError(null);
-            onSubmit(payload);
+            onSubmit(hasAnyMeaningfulValue ? payload : null);
           }}
         >
           {submitting ? "Đang lưu…" : "Lưu lens params"}

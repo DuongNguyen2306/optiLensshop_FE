@@ -19,10 +19,10 @@ const HERO_MODEL =
 const MID_BANNER = "/images/banner2.jpg";
 
 const CATEGORY_ITEMS: { label: string; href: string; icon: "frame" | "lens" | "sun" | "acc" }[] = [
-  { label: "Gọng kính", href: "#", icon: "frame" },
-  { label: "Tròng kính", href: "#", icon: "lens" },
-  { label: "Kính râm", href: "#", icon: "sun" },
-  { label: "Phụ kiện", href: "#", icon: "acc" },
+  { label: "Gọng kính", href: "/products?type=frame", icon: "frame" },
+  { label: "Tròng kính", href: "/products?type=lens", icon: "lens" },
+  { label: "Kính râm", href: "/products?search=kinh%20ram", icon: "sun" },
+  { label: "Phụ kiện", href: "/products?type=accessory", icon: "acc" },
 ];
 
 function CategoryIcon({ type }: { type: "frame" | "lens" | "sun" | "acc" }) {
@@ -70,13 +70,18 @@ function formatPriceVnd(value: number) {
 }
 
 function SectionLinks({ className }: { className?: string }) {
-  const links = ["Gọng kính", "Tròng kính", "Kính râm", "Xem tất cả →"];
+  const links = [
+    { label: "Gọng kính", to: "/products?type=frame" },
+    { label: "Tròng kính", to: "/products?type=lens" },
+    { label: "Kính râm", to: "/products?search=kinh%20ram" },
+    { label: "Xem tất cả →", to: "/products" },
+  ];
   return (
     <div className={cn("flex flex-wrap items-center justify-end gap-x-4 gap-y-2 text-xs font-medium text-slate-600", className)}>
-      {links.map((label) => (
-        <a key={label} href="#" className="transition hover:text-[#2bb6a3]">
-          {label}
-        </a>
+      {links.map((item) => (
+        <Link key={item.label} to={item.to} className="transition hover:text-[#2bb6a3]">
+          {item.label}
+        </Link>
       ))}
     </div>
   );
@@ -294,9 +299,9 @@ export default function HomePage() {
           <h2 className="text-center text-xs font-bold uppercase tracking-[0.3em] text-slate-500">Danh mục nổi bật</h2>
           <div className="mt-8 flex flex-wrap items-start justify-center gap-x-6 gap-y-8 sm:gap-x-10">
             {CATEGORY_ITEMS.map((cat) => (
-              <a
+              <Link
                 key={cat.label}
-                href={cat.href}
+                to={cat.href}
                 className="group flex w-[88px] flex-col items-center text-center sm:w-[100px]"
               >
                 <span className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full border-2 border-slate-200 bg-white shadow-sm transition duration-300 group-hover:border-[#2bb6a3]/50 group-hover:shadow-md sm:h-24 sm:w-24">
@@ -307,7 +312,7 @@ export default function HomePage() {
                 <span className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-700 transition group-hover:text-[#2bb6a3]">
                   {cat.label}
                 </span>
-              </a>
+              </Link>
             ))}
           </div>
         </div>
@@ -334,11 +339,8 @@ export default function HomePage() {
         )}
 
         <div className="mt-12 flex justify-center">
-          <Button
-            variant="outline"
-            className="h-11 rounded-full border-2 border-[#2bb6a3] px-10 text-sm font-semibold text-[#2bb6a3] transition hover:bg-[#2bb6a3]/10"
-          >
-            Xem toàn bộ sản phẩm
+          <Button asChild variant="outline" className="h-11 rounded-full border-2 border-[#2bb6a3] px-10 text-sm font-semibold text-[#2bb6a3] transition hover:bg-[#2bb6a3]/10">
+            <Link to="/products">Xem toàn bộ sản phẩm</Link>
           </Button>
         </div>
       </section>

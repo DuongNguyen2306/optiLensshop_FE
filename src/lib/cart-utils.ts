@@ -19,14 +19,20 @@ export function cartItemsArrayFromResponse(data: unknown): unknown[] {
     return [];
   }
   const o = data as Record<string, unknown>;
-  if (Array.isArray(o.items)) {
-    return o.items;
+
+  // Cấu trúc phẳng: { items, cart_items, line_items }
+  if (Array.isArray(o.items)) return o.items;
+  if (Array.isArray(o.cart_items)) return o.cart_items;
+  if (Array.isArray(o.line_items)) return o.line_items;
+
+  // Cấu trúc lồng: { cart: { items, cart_items } }
+  const nested = o.cart ?? o.data;
+  if (nested && typeof nested === "object") {
+    const n = nested as Record<string, unknown>;
+    if (Array.isArray(n.items)) return n.items;
+    if (Array.isArray(n.cart_items)) return n.cart_items;
+    if (Array.isArray(n.line_items)) return n.line_items;
   }
-  if (Array.isArray(o.cart_items)) {
-    return o.cart_items;
-  }
-  if (Array.isArray(o.line_items)) {
-    return o.line_items;
-  }
+
   return [];
 }

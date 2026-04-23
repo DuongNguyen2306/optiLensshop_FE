@@ -7,7 +7,6 @@ import { entityId } from "@/features/catalog/types";
 import { getApiErrorMessage } from "@/lib/api-error";
 import { mapProductListToHomeCards, pickPrimaryImageForProduct } from "@/lib/home-product-map";
 import {
-  isVariantPurchasable,
   variantAvailableQuantity,
   variantConsumerLabel,
   variantMongoId,
@@ -15,7 +14,10 @@ import {
   variantStockType,
 } from "@/lib/shop-utils";
 import { postCartItem } from "@/services/shop.service";
+import { postPreorderNow } from "@/services/order.service";
+import { getMyAddresses } from "@/services/users.service";
 import type { ShopVariant } from "@/types/shop";
+import type { PaymentMethod, ShippingMethod } from "@/types/shop";
 import StoreHeader from "@/components/home/store-header";
 import SiteFooter from "@/components/layout/site-footer";
 import { Button } from "@/components/ui/button";
@@ -26,6 +28,39 @@ function formatPriceVnd(value: number) {
     return "0đ";
   }
   return `${Math.round(value).toLocaleString("vi-VN")}đ`;
+}
+
+function parseMaybeNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const n = Number(value.trim());
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function readProfilePhone(userLike: unknown): string {
+  if (!userLike || typeof userLike !== "object") return "";
+  const u = userLike as Record<string, unknown>;
+  if (typeof u.phone === "string" && u.phone.trim()) return u.phone.trim();
+  const profile = u.profile;
+  if (profile && typeof profile === "object") {
+    const p = profile as Record<string, unknown>;
+    if (typeof p.phone === "string" && p.phone.trim()) return p.phone.trim();
+  }
+  return "";
+}
+
+function defaultAddressFromList(addresses: unknown): string {
+  if (!Array.isArray(addresses)) return "";
+  const list = addresses as Array<Record<string, unknown>>;
+  const preferred = list.find((addr) => Boolean(addr.is_default)) ?? list[0];
+  if (!preferred) return "";
+  const fullFromParts = [preferred.address_line, preferred.ward, preferred.district, preferred.province]
+    .filter((v) => typeof v === "string" && v.trim())
+    .join(", ");
+  const full = preferred.address ?? preferred.full_address ?? fullFromParts;
+  return typeof full === "string" ? full.trim() : "";
 }
 
 const PRODUCT_TYPE_LABEL: Record<string, string> = {
@@ -158,7 +193,12 @@ export default function ProductDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const token = useAppSelector((s) => s.auth.token);
+  const authUser = useAppSelector((s) => s.auth.user);
   const [quantity, setQuantity] = useState(1);
+  const [preorderPhone, setPreorderPhone] = useState("");
+  const [preorderAddress, setPreorderAddress] = useState("");
+  const [preorderPaymentMethod, setPreorderPaymentMethod] = useState<PaymentMethod>("cod");
+  const [preorderShippingMethod, setPreorderShippingMethod] = useState<ShippingMethod>("ship");
   const [adding, setAdding] = useState(false);
   const [buyingNow, setBuyingNow] = useState(false);
 
@@ -195,6 +235,11 @@ export default function ProductDetailPage() {
         .filter((item) => item.slug !== slug)
         .slice(0, 4);
     },
+  });
+  const addressesQuery = useQuery({
+    queryKey: ["users", "my-addresses", "preorder"],
+    enabled: Boolean(token),
+    queryFn: () => getMyAddresses(),
   });
 
   useEffect(() => {
@@ -246,8 +291,19 @@ export default function ProductDetailPage() {
 
   const selectedStockType = selectedVariant ? variantStockType(selectedVariant) : "unknown";
   const selectedAvailableQty = selectedVariant ? variantAvailableQuantity(selectedVariant) : 0;
-  const selectedPurchasable = selectedVariant ? isVariantPurchasable(selectedVariant) : false;
-  const selectedOutOfStock = !selectedPurchasable;
+  const selectedStockRaw = selectedVariant ? parseMaybeNumber((selectedVariant as Record<string, unknown>).stock_quantity) : null;
+  const selectedReservedRaw = selectedVariant ? parseMaybeNumber((selectedVariant as Record<string, unknown>).reserved_quantity) : null;
+  const selectedVariantActive = selectedVariant ? Boolean((selectedVariant as Record<string, unknown>).is_active ?? true) : false;
+  const selectedProductActive = Boolean((product as Record<string, unknown> | undefined)?.is_active ?? true);
+  const stockResolved =
+    Boolean(selectedVariant) &&
+    (selectedStockType === "preorder" || selectedStockType === "discontinued" || (selectedStockRaw != null && selectedReservedRaw != null));
+  const canAddToCart = stockResolved && Boolean(selectedVariant && selectedVariantActive && selectedProductActive) && selectedAvailableQty > 0;
+  const canPreorder =
+    stockResolved &&
+    Boolean(selectedVariant && selectedVariantActive && selectedProductActive) &&
+    !canAddToCart &&
+    selectedStockType !== "discontinued";
   const maxInStockQty = selectedStockType === "in_stock" ? Math.max(1, selectedAvailableQty) : undefined;
 
   useEffect(() => {
@@ -257,6 +313,17 @@ export default function ProductDetailPage() {
   }, [maxInStockQty, quantity]);
 
   const selectedPrice = selectedVariant ? variantPrice(selectedVariant) : 0;
+  const profilePhone = readProfilePhone(authUser);
+  const needPreorderPhoneInput = profilePhone.length === 0;
+
+  useEffect(() => {
+    if (!preorderAddress.trim()) {
+      const inferred = defaultAddressFromList(addressesQuery.data);
+      if (inferred) {
+        setPreorderAddress(inferred);
+      }
+    }
+  }, [addressesQuery.data, preorderAddress]);
 
   const productTags = useMemo(() => {
     if (!product) {
@@ -301,6 +368,9 @@ export default function ProductDetailPage() {
     if (selectedStockType === "in_stock") {
       return selectedAvailableQty > 0 ? `Còn ${selectedAvailableQty} sản phẩm khả dụng` : "Tạm hết hàng";
     }
+    if (selectedAvailableQty <= 0 && selectedStockType !== "discontinued") {
+      return "Tạm hết hàng - bạn có thể đặt trước";
+    }
     return "Đang cập nhật tồn kho";
   })();
 
@@ -310,8 +380,8 @@ export default function ProductDetailPage() {
       toast.error("Vui lòng chọn một phiên bản sản phẩm.");
       return false;
     }
-    if (!selectedVariant || !selectedPurchasable) {
-      toast.error("Phiên bản này hiện không thể mua.");
+    if (!selectedVariant || !canAddToCart) {
+      toast.error("Sản phẩm này đang hết hàng, vui lòng chuyển sang đặt trước.");
       return false;
     }
     if (selectedStockType === "in_stock" && quantity > selectedAvailableQty) {
@@ -352,6 +422,41 @@ export default function ProductDetailPage() {
   const handleBuyNow = async () => {
     setBuyingNow(true);
     try {
+      if (canPreorder) {
+        if (!selectedVariantId) {
+          toast.error("Vui lòng chọn phiên bản để đặt trước.");
+          return;
+        }
+        if (!token) {
+          toast.info("Vui lòng đăng nhập để đặt trước.");
+          navigate("/login", { state: { from: `/products/${slug}` } });
+          return;
+        }
+        const phoneForPreorder = (preorderPhone.trim() || profilePhone).trim();
+        if (!/^\d{9,11}$/.test(phoneForPreorder)) {
+          toast.error("Vui lòng nhập số điện thoại hợp lệ (9-11 số) để đặt trước.");
+          return;
+        }
+        if (!preorderAddress.trim()) {
+          toast.error("Vui lòng nhập địa chỉ giao hàng cho đơn đặt trước.");
+          return;
+        }
+        const res = await postPreorderNow({
+          shipping_address: preorderAddress.trim(),
+          shipping_method: preorderShippingMethod,
+          payment_method: preorderPaymentMethod,
+          phone: phoneForPreorder,
+          items: [{ variant_id: selectedVariantId, quantity: Math.max(1, quantity), lens_params: {} }],
+        });
+        if (res.payUrl) {
+          window.location.assign(res.payUrl);
+          return;
+        }
+        const orderId = res.orderId;
+        toast.success(res.message ?? "Đã tạo đơn đặt trước. Đơn đang chờ shop xác nhận.");
+        navigate(orderId ? `/orders/${encodeURIComponent(orderId)}` : "/orders");
+        return;
+      }
       const ok = await addCurrentItemToCart({ showSuccessToast: false });
       if (!ok) {
         return;
@@ -535,10 +640,10 @@ export default function ProductDetailPage() {
               <Button
                 type="button"
                 className="h-11 min-w-[190px] rounded-none border border-[#2bb6a3] !bg-white px-8 text-sm font-semibold uppercase tracking-wide !text-[#2bb6a3] !shadow-none hover:!bg-[#2bb6a3]/10"
-                disabled={adding || buyingNow || variants.length === 0 || selectedOutOfStock}
+                disabled={adding || buyingNow || variants.length === 0 || !stockResolved || !canAddToCart}
                 onClick={() => void handleAddToCart()}
               >
-                {adding ? "Đang thêm..." : "Thêm vào giỏ hàng"}
+                {adding ? "Đang thêm..." : !stockResolved ? "Đang cập nhật tồn kho" : canAddToCart ? "Thêm vào giỏ hàng" : "Hết hàng"}
               </Button>
               {token ? (
                 <>
@@ -553,14 +658,64 @@ export default function ProductDetailPage() {
                   <Button
                     type="button"
                     className="h-11 rounded-none bg-[#2bb6a3] px-6 uppercase tracking-wide text-white"
-                    disabled={adding || buyingNow || variants.length === 0 || selectedOutOfStock}
+                    disabled={adding || buyingNow || variants.length === 0 || !stockResolved || (!canPreorder && !canAddToCart)}
                     onClick={() => void handleBuyNow()}
                   >
-                    {buyingNow ? "Đang xử lý..." : "Đặt hàng"}
+                    {buyingNow
+                      ? "Đang xử lý..."
+                      : !stockResolved
+                        ? "Đang cập nhật tồn kho"
+                      : canPreorder
+                        ? "Đặt trước (Pre-order)"
+                        : "Đặt hàng"}
                   </Button>
                 </>
               ) : null}
             </div>
+            {canPreorder ? (
+              <div className="mt-4 max-w-xl rounded-lg border border-amber-200 bg-amber-50/40 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Thông tin đặt trước</p>
+                <div className="mt-2 grid gap-2">
+                  <input
+                    type="text"
+                    value={preorderAddress}
+                    onChange={(e) => setPreorderAddress(e.target.value)}
+                    placeholder="Địa chỉ giao hàng đầy đủ"
+                    className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none transition focus:border-[#2bb6a3]"
+                  />
+                  {needPreorderPhoneInput ? (
+                    <input
+                      type="tel"
+                      value={preorderPhone}
+                      onChange={(e) => setPreorderPhone(e.target.value)}
+                      placeholder="Số điện thoại 9-11 số"
+                      className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none transition focus:border-[#2bb6a3]"
+                    />
+                  ) : (
+                    <p className="text-xs text-slate-600">Số điện thoại nhận hàng: {profilePhone}</p>
+                  )}
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <select
+                      value={preorderPaymentMethod}
+                      onChange={(e) => setPreorderPaymentMethod(e.target.value as PaymentMethod)}
+                      className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none transition focus:border-[#2bb6a3]"
+                    >
+                      <option value="cod">Thanh toán COD</option>
+                      <option value="momo">Thanh toán MoMo</option>
+                      <option value="vnpay">Thanh toán VNPay</option>
+                    </select>
+                    <select
+                      value={preorderShippingMethod}
+                      onChange={(e) => setPreorderShippingMethod(e.target.value as ShippingMethod)}
+                      className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none transition focus:border-[#2bb6a3]"
+                    >
+                      <option value="ship">Giao tận nơi</option>
+                      <option value="pickup">Nhận tại cửa hàng</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
             <div className="mt-6 flex items-center justify-between border-y border-slate-200 py-4 text-sm">
               <div className="flex items-center gap-2">
@@ -568,7 +723,7 @@ export default function ProductDetailPage() {
                 {selectedStockType === "discontinued" ? (
                   <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">Ngừng bán</span>
                 ) : null}
-                {selectedStockType === "preorder" ? (
+                {stockResolved && selectedStockType === "preorder" ? (
                   <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">Pre-order</span>
                 ) : null}
               </div>

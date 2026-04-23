@@ -9,7 +9,30 @@ export function orderId(order: CustomerOrderListItem | null | undefined): string
 }
 
 export function orderStatus(order: CustomerOrderListItem | null | undefined): string {
-  return String(order?.status ?? "").toLowerCase().trim();
+  return normalizeOrderStatus(String(order?.status ?? ""));
+}
+
+export function normalizeOrderStatus(raw: string | undefined): string {
+  const s = String(raw ?? "").toLowerCase().trim();
+  const map: Record<string, string> = {
+    "đã giao": "delivered",
+    "dang giao": "shipped",
+    "đang giao": "shipped",
+    "đang giao hàng": "shipped",
+    "da dong goi": "packed",
+    "đã đóng gói": "packed",
+    "hoan tat": "completed",
+    "hoàn tất": "completed",
+    "yeu cau tra hang": "return_requested",
+    "yêu cầu trả hàng": "return_requested",
+    "da tra hang": "returned",
+    "đã trả hàng": "returned",
+    "da hoan tien": "refunded",
+    "đã hoàn tiền": "refunded",
+    shipping: "shipped",
+    fulfilled: "manufacturing",
+  };
+  return map[s] ?? s;
 }
 
 export function canCustomerCancelOrder(order: CustomerOrderListItem | null | undefined): boolean {
@@ -18,14 +41,16 @@ export function canCustomerCancelOrder(order: CustomerOrderListItem | null | und
 }
 
 export function orderReadableStatus(status: string | undefined): string {
-  const s = String(status ?? "").toLowerCase().trim();
+  const s = normalizeOrderStatus(String(status ?? ""));
   if (s === "pending") return "Chờ xác nhận";
   if (s === "confirmed") return "Đã xác nhận";
   if (s === "processing") return "Đang xử lý";
-  if (s === "received") return "Đã nhập kho";
-  if (s === "manufacturing") return "Đang gia công";
+  if (s === "fulfilled") return "Hoàn tất gia công";
+  if (s === "manufacturing") return "Đang gia công tròng";
+  if (s === "received") return "Hàng đã về kho";
   if (s === "packed") return "Đã đóng gói";
-  if (s === "shipped") return "Đang giao";
+  if (s === "shipping") return "Đang giao";
+  if (s === "shipped") return "Đang giao hàng";
   if (s === "delivered") return "Đã giao";
   if (s === "completed") return "Hoàn tất";
   if (s === "cancelled") return "Đã hủy";
@@ -35,17 +60,31 @@ export function orderReadableStatus(status: string | undefined): string {
   return status?.trim() || "—";
 }
 
-export function nextOpsStatuses(currentStatus: string): string[] {
-  const s = currentStatus.toLowerCase().trim();
-  const map: Record<string, string[]> = {
-    confirmed: ["processing"],
-    processing: ["manufacturing", "received", "packed"],
-    manufacturing: ["packed"],
-    received: ["packed"],
+export function nextStatusesByOrderType(orderType: string | undefined, currentStatus: string): string[] {
+  const type = String(orderType ?? "stock").toLowerCase().trim();
+  const s = normalizeOrderStatus(currentStatus);
+  const common: Record<string, string[]> = {
+    pending: ["confirmed", "cancelled"],
+    confirmed: ["processing", "cancelled"],
     packed: ["shipped"],
     shipped: ["delivered"],
     delivered: ["completed", "return_requested"],
     return_requested: ["returned", "refunded"],
   };
-  return map[s] ?? [];
+
+  if (common[s]) {
+    return common[s];
+  }
+  if (s === "processing") {
+    if (type === "prescription") return ["manufacturing"];
+    if (type === "pre_order") return ["received"];
+    return ["packed", "shipped"];
+  }
+  if (s === "manufacturing") {
+    return ["packed"];
+  }
+  if (s === "received") {
+    return ["packed"];
+  }
+  return [];
 }

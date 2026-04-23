@@ -8,11 +8,14 @@ export interface User {
   role: string;
   status: string;
   is_email_verified: boolean;
+  phone?: string;
+  full_name?: string;
   first_name?: string;
   last_name?: string;
   dob?: string;
   gender?: string;
   avatar_url?: string;
+  profile?: Record<string, unknown> | null;
 }
 
 /** Body BE cho POST /auth/login */
@@ -106,11 +109,40 @@ const persistAuthCookie = (token: string | null) => {
   document.cookie = `auth_token=${token}; Path=/; Max-Age=${sevenDaysInSeconds}; SameSite=Lax`;
 };
 
+const clearPersistedAuthStorage = () => {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.removeItem("persist:auth");
+  } catch {
+    // no-op
+  }
+};
+
 const mapLoginResponse = (data: LoginApiResponse): AuthSuccessPayload => ({
   user: data.user,
   token: data.access_token,
   message: data.message,
 });
+
+async function fetchProfileWithToken(token: string): Promise<User | null> {
+  try {
+    const response = await axios.get<unknown>("/users/me/profile", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (response.data && typeof response.data === "object") {
+      const o = response.data as Record<string, unknown>;
+      if (o.user && typeof o.user === "object") {
+        return o.user as User;
+      }
+      return response.data as User;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 export const login = createAsyncThunk<AuthSuccessPayload, LoginPayload, { rejectValue: string }>(
   "auth/login",
@@ -120,7 +152,12 @@ export const login = createAsyncThunk<AuthSuccessPayload, LoginPayload, { reject
         email: payload.email.trim().toLowerCase(),
         password: payload.password,
       });
-      return mapLoginResponse(response.data);
+      const mapped = mapLoginResponse(response.data);
+      const profileUser = await fetchProfileWithToken(mapped.token);
+      return {
+        ...mapped,
+        user: profileUser ? { ...mapped.user, ...profileUser } : mapped.user,
+      };
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
@@ -153,17 +190,18 @@ export const register = createAsyncThunk<RegisterResultPayload, RegisterPayload,
 
 export const logout = createAsyncThunk<void, void, { rejectValue: string }>(
   "auth/logout",
-  async (_, { rejectWithValue }) => {
+  async () => {
+    // Best-effort: xóa giỏ hàng trước khi logout để lần đăng nhập sau bắt đầu từ giỏ trống.
     try {
-      // Best-effort: xóa giỏ hàng trước khi logout để lần đăng nhập sau bắt đầu từ giỏ trống.
-      try {
-        await axios.delete("/cart/clear");
-      } catch {
-        // Không chặn logout nếu clear cart thất bại (ví dụ role không dùng cart).
-      }
+      await axios.delete("/cart/clear");
+    } catch {
+      // Không chặn logout nếu clear cart thất bại (ví dụ role không dùng cart).
+    }
+    // Không chặn FE logout nếu BE không có endpoint /auth/logout hoặc trả lỗi.
+    try {
       await axios.post("/auth/logout");
-    } catch (error) {
-      return rejectWithValue(getErrorMessage(error));
+    } catch {
+      // no-op
     }
   }
 );
@@ -172,10 +210,22 @@ export const getMe = createAsyncThunk<User, void, { rejectValue: string }>(
   "auth/getMe",
   async (_, { rejectWithValue }) => {
     try {
-      const response = await axios.get<{ user: User }>("/auth/me");
-      return response.data.user;
+      const response = await axios.get<unknown>("/users/me/profile");
+      if (response.data && typeof response.data === "object") {
+        const o = response.data as Record<string, unknown>;
+        if (o.user && typeof o.user === "object") {
+          return o.user as User;
+        }
+        return response.data as User;
+      }
+      return rejectWithValue("Không lấy được thông tin hồ sơ.");
     } catch (error) {
-      return rejectWithValue(getErrorMessage(error));
+      try {
+        const fallback = await axios.get<{ user: User }>("/auth/me");
+        return fallback.data.user;
+      } catch {
+        return rejectWithValue(getErrorMessage(error));
+      }
     }
   }
 );
@@ -245,6 +295,8 @@ export const resetPassword = createAsyncThunk<string, ResetPasswordPayload, { re
 );
 
 export interface UpdateProfilePayload {
+  phone?: string;
+  full_name?: string;
   first_name?: string;
   last_name?: string;
   dob?: string;
@@ -258,6 +310,8 @@ export const updateProfile = createAsyncThunk<User, UpdateProfilePayload, { reje
     try {
       const formData = new FormData();
       if (payload.avatar) formData.append("avatar", payload.avatar);
+      if (payload.phone !== undefined) formData.append("phone", payload.phone.trim());
+      if (payload.full_name !== undefined) formData.append("full_name", payload.full_name.trim());
       if (payload.first_name !== undefined) formData.append("first_name", payload.first_name.trim());
       if (payload.last_name !== undefined) formData.append("last_name", payload.last_name.trim());
       if (payload.dob) formData.append("dob", payload.dob);
@@ -308,6 +362,7 @@ const authSlice = createSlice({
       state.loading = false;
       state.error = null;
       persistAuthCookie(null);
+      clearPersistedAuthStorage();
     },
   },
   extraReducers: (builder) => {
@@ -369,6 +424,7 @@ const authSlice = createSlice({
         state.isAuthenticated = false;
         state.error = null;
         persistAuthCookie(null);
+        clearPersistedAuthStorage();
       })
       .addCase(logout.rejected, (state, action) => {
         state.loading = false;
@@ -377,6 +433,7 @@ const authSlice = createSlice({
         state.isAuthenticated = false;
         state.error = action.payload ?? null;
         persistAuthCookie(null);
+        clearPersistedAuthStorage();
       })
       .addCase(updateProfile.fulfilled, (state, action) => {
         if (state.user) {

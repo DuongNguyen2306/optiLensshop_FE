@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import type { ReactNode } from "react";
 import { Navigate, Outlet } from "react-router-dom";
 import { toast } from "sonner";
-import { roleDefaultPath } from "@/lib/role-routing";
+import { normalizeRole, roleDefaultPath } from "@/lib/role-routing";
 import { useAppSelector } from "@/store/hooks";
 
 interface RequireRoleProps {
@@ -19,8 +19,10 @@ export default function RequireRole({
   children,
 }: RequireRoleProps) {
   const role = useAppSelector((s) => s.auth.user?.role);
-  const normalizedRole = String(role ?? "").toLowerCase();
-  const allowed = allowedRoles.map((r) => r.toLowerCase());
+  const normalizedRole = normalizeRole(role);
+  const allowed = allowedRoles
+    .map((r) => normalizeRole(r))
+    .filter((r): r is NonNullable<ReturnType<typeof normalizeRole>> => r !== null);
   const canAccess = allowed.includes(normalizedRole);
   const fallback = redirectTo ?? roleDefaultPath(role);
 

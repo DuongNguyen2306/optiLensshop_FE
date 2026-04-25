@@ -1,9 +1,11 @@
 import { useMemo } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { fetchProducts } from "@/features/catalog/api";
+import ShopShowcaseCard from "@/components/shop/shop-showcase-card";
 import StoreHeader from "@/components/home/store-header";
 import SiteFooter from "@/components/layout/site-footer";
+import PageSectionHeading from "@/components/layout/page-section-heading";
 import { getApiErrorMessage } from "@/lib/api-error";
 import { mapProductListToHomeCards } from "@/lib/home-product-map";
 
@@ -37,10 +39,21 @@ function fmtVnd(value: number): string {
   return `${Math.round(value).toLocaleString("vi-VN")}đ`;
 }
 
-function titleByType(type: string): string {
-  if (type === "frame") return "Gọng kính";
-  if (type === "lens") return "Tròng kính";
-  if (type === "sunglasses") return "Kính râm";
+/** Tiêu đề hiển thị theo bộ lọc URL (không đổi API). */
+function getListTitle(type: string, search: string): string {
+  const s = search.trim().toLowerCase();
+  if (s && (s.includes("ram") || s.includes("râm"))) {
+    return "Kính râm";
+  }
+  if (type === "frame") {
+    return "Gọng kính";
+  }
+  if (type === "lens") {
+    return "Tròng kính";
+  }
+  if (type === "sunglasses") {
+    return "Kính râm";
+  }
   return "Tất cả sản phẩm";
 }
 
@@ -79,55 +92,54 @@ export default function ProductsPage() {
     setSearchParams(p);
   };
 
+  const listTitle = getListTitle(type, search);
+  const listDescription =
+    search
+      ? `Kết quả tìm theo: "${search}". Dữ liệu từ API sản phẩm.`
+      : "";
+
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-[#f4f1eb]">
       <StoreHeader />
-      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-5 flex items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">{titleByType(type)}</h1>
-            <p className="text-sm text-slate-500">
-              {search ? `Từ khóa: "${search}"` : "Duyệt sản phẩm theo API /products"}
-            </p>
-          </div>
-        </div>
+      <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-12 lg:px-8">
+        <PageSectionHeading kicker="Cửa hàng online" description={listDescription}>
+          {listTitle}
+        </PageSectionHeading>
 
         {productsQuery.isPending ? (
-          <p className="text-slate-600">Đang tải sản phẩm…</p>
+          <p className="mt-8 text-center text-sm font-medium text-stone-500">Đang tải sản phẩm…</p>
         ) : productsQuery.isError ? (
-          <p className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <p className="mt-8 rounded-lg border border-red-200/80 bg-red-50 p-4 text-sm text-red-800">
             {getApiErrorMessage(productsQuery.error, "Không tải được danh sách sản phẩm.")}
           </p>
         ) : cards.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-slate-600">
+          <div className="mt-8 rounded-sm border border-dashed border-stone-300/80 bg-stone-50/80 p-10 text-center text-sm text-stone-600 backdrop-blur-sm">
             Không có sản phẩm phù hợp.
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
+          <div className="mt-8 grid grid-cols-2 gap-4 sm:gap-5 md:grid-cols-3 lg:grid-cols-4">
             {cards.map((p) => (
-              <Link
+              <ShopShowcaseCard
                 key={p.id}
+                variant="luxe"
                 to={`/products/${encodeURIComponent(p.slug)}`}
-                className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-[#2bb6a3]/40"
-              >
-                <div className="flex h-36 items-center justify-center overflow-hidden rounded-lg bg-slate-50">
-                  {p.image ? <img src={p.image} alt={p.name} className="h-full w-full object-contain p-2" /> : null}
-                </div>
-                <p className="mt-3 line-clamp-2 text-sm font-semibold text-slate-900">{p.name}</p>
-                <p className="mt-1 text-sm font-bold text-[#2bb6a3]">{fmtVnd(p.price)}</p>
-              </Link>
+                title={p.name}
+                priceText={fmtVnd(p.price)}
+                imageUrl={p.image}
+                compact
+              />
             ))}
           </div>
         )}
 
-        <div className="mt-6 flex items-center justify-between">
-          <p className="text-sm text-slate-600">
-            Tổng: <span className="font-semibold text-slate-900">{pagination.total}</span> sản phẩm
+        <div className="mt-10 flex flex-col gap-4 border-t border-stone-200/60 pt-8 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-stone-600">
+            Tổng: <span className="font-semibold text-[#1a1d28]">{pagination.total}</span> sản phẩm
           </p>
           <div className="flex gap-2">
             <button
               type="button"
-              className="rounded-md border border-slate-200 px-3 py-1.5 text-sm disabled:opacity-50"
+              className="min-w-[5.5rem] border border-stone-300/90 bg-white/90 px-4 py-2 text-sm font-medium text-stone-700 shadow-sm transition duration-300 ease-in-out hover:border-[#2BBBAD]/45 hover:text-[#2BBBAD] disabled:opacity-45"
               disabled={pagination.page <= 1 || productsQuery.isFetching}
               onClick={() => setPage(Math.max(1, pagination.page - 1))}
             >
@@ -135,7 +147,7 @@ export default function ProductsPage() {
             </button>
             <button
               type="button"
-              className="rounded-md border border-slate-200 px-3 py-1.5 text-sm disabled:opacity-50"
+              className="min-w-[5.5rem] border border-stone-300/90 bg-white/90 px-4 py-2 text-sm font-medium text-stone-700 shadow-sm transition duration-300 ease-in-out hover:border-[#2BBBAD]/45 hover:text-[#2BBBAD] disabled:opacity-45"
               disabled={pagination.page >= pagination.total_pages || productsQuery.isFetching}
               onClick={() => setPage(pagination.page + 1)}
             >

@@ -12,10 +12,14 @@ import ProductCreatePage from "@/pages/admin/catalog/ProductCreatePage";
 import ProductListPage from "@/pages/admin/catalog/ProductListPage";
 import ProductVariantsPage from "@/pages/admin/catalog/ProductVariantsPage";
 import StatisticsDashboardPage from "@/pages/admin/StatisticsDashboardPage";
+import FinanceAnalyticsPage from "@/pages/admin/FinanceAnalyticsPage";
 import InternalOrdersPage from "@/pages/admin/management/InternalOrdersPage";
+import AdminOrderDetailPage from "@/pages/admin/management/AdminOrderDetailPage";
+import AdminReturnsPage from "@/pages/admin/management/AdminReturnsPage";
+import AdminReturnDetailPage from "@/pages/admin/management/AdminReturnDetailPage";
 import ManagersManagementPage from "@/pages/admin/management/ManagersManagementPage";
 import StaffManagementPage from "@/pages/admin/management/StaffManagementPage";
-import InventoryReceiptsPage from "@/pages/admin/inventory/InventoryReceiptsPage";
+import MyReturnsPage from "@/pages/MyReturnsPage";
 import InventoryLedgerPage from "@/pages/admin/inventory/InventoryLedgerPage";
 import ComboDetailPage from "@/pages/ComboDetailPage";
 import CombosPage from "@/pages/CombosPage";
@@ -80,6 +84,7 @@ export default function App() {
             <Route path="/order-success" element={<OrderSuccessPage />} />
             <Route path="/orders" element={<OrdersHistoryPage />} />
             <Route path="/orders/:id" element={<OrderDetailPage />} />
+            <Route path="/my-returns" element={<MyReturnsPage />} />
           </Route>
         </Route>
 
@@ -89,6 +94,9 @@ export default function App() {
               <Route index element={<RoleHomeRedirect />} />
               <Route path="dashboard" element={<InternalDashboardPage />} />
               <Route path="orders" element={<InternalOrdersPage />} />
+              <Route path="orders/:id" element={<AdminOrderDetailPage />} />
+              <Route path="returns" element={<AdminReturnsPage />} />
+              <Route path="returns/:id" element={<AdminReturnDetailPage />} />
 
               <Route element={<RequireRole allowedRoles={["manager", "admin"]} message="Chỉ manager/admin được truy cập." />}>
                 <Route path="catalog/products" element={<ProductListPage />} />
@@ -99,7 +107,8 @@ export default function App() {
                 <Route path="catalog/brands" element={<BrandsPage />} />
                 <Route path="catalog/models" element={<ModelsPage />} />
                 <Route path="catalog/statistics" element={<StatisticsDashboardPage />} />
-                <Route path="inventory/receipts" element={<InventoryReceiptsPage />} />
+                {/* Tạm ẩn chức năng phiếu nhập kho cũ theo yêu cầu */}
+                {/* <Route path="inventory/receipts" element={<InventoryReceiptsPage />} /> */}
                 <Route path="inventory/ledger" element={<InventoryLedgerPage />} />
               </Route>
 
@@ -108,11 +117,25 @@ export default function App() {
               </Route>
 
               <Route element={<RequireRole allowedRoles={["admin"]} message="Chỉ admin được truy cập." />}>
+                <Route path="analytics/finance" element={<FinanceAnalyticsPage />} />
                 <Route path="management/managers" element={<ManagersManagementPage />} />
               </Route>
             </Route>
           </Route>
         </Route>
+
+        {/* Tạm ẩn module Inbound Allocation theo yêu cầu */}
+        {/* 
+        <Route element={<RequireAuth />}>
+          <Route element={<RequireRole allowedRoles={["operations", "manager", "admin"]} />}>
+            <Route path="/ops" element={<InternalLayout />}>
+              <Route path="inbound" element={<InboundListPage />} />
+              <Route path="inbound/create-from-orders" element={<InboundCreateFromOrdersPage />} />
+              <Route path="inbound/:id" element={<InboundDetailPage />} />
+            </Route>
+          </Route>
+        </Route>
+        */}
 
         <Route path="*" element={<RoleHomeRedirect />} />
       </Routes>

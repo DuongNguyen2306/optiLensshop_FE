@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { fetchProducts } from "@/features/catalog/api";
 import { fetchCombos } from "@/services/combo.service";
@@ -7,66 +7,30 @@ import SiteFooter from "@/components/layout/site-footer";
 import { getApiErrorMessage } from "@/lib/api-error";
 import type { HomeProductCard } from "@/lib/home-product-map";
 import { mapProductListToHomeCards } from "@/lib/home-product-map";
-import { Button } from "@/components/ui/button";
+import ShopShowcaseCard from "@/components/shop/shop-showcase-card";
+import HomeFeaturedCategories from "@/components/home/home-featured-categories";
 import { cn } from "@/lib/utils";
 import type { Combo } from "@/types/combo";
 import { comboPreviewImage } from "@/lib/combo-display";
 
-/** Banner tách trái ảnh / phải nội dung nền beige — đúng layout mẫu Anna. */
+/** Banner tách trái ảnh / phải nội dung nền beige — đúng layout mẫu MYLENS. */
 const HERO_MODEL =
   "https://images.unsplash.com/photo-1469334031218-e382a71b716b?auto=format&fit=crop&w=1200&q=80";
 /** Banner giữa trang — file `public/images/banner2.jpg`. */
 const MID_BANNER = "/images/banner2.jpg";
 
-const CATEGORY_ITEMS: { label: string; href: string; icon: "frame" | "lens" | "sun" | "acc" }[] = [
-  { label: "Gọng kính", href: "/products?type=frame", icon: "frame" },
-  { label: "Tròng kính", href: "/products?type=lens", icon: "lens" },
-  { label: "Kính râm", href: "/products?search=kinh%20ram", icon: "sun" },
-  { label: "Phụ kiện", href: "/products?type=accessory", icon: "acc" },
-];
-
-function CategoryIcon({ type }: { type: "frame" | "lens" | "sun" | "acc" }) {
-  const common = "h-7 w-7 text-[#2bb6a3]";
-  switch (type) {
-    case "frame":
-      return (
-        <svg className={common} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M21 12c0 1.657-1.79 3-4 3s-4-1.343-4-3 1.79-3 4-3 4 1.343 4 3zM7 12c0 1.657-1.79 3-4 3s-4-1.343-4-3 1.79-3 4-3 4 1.343 4 3z"
-          />
-          <path strokeLinecap="round" d="M5 12h14" />
-        </svg>
-      );
-    case "lens":
-      return (
-        <svg className={common} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-          <circle cx="12" cy="12" r="6" />
-          <circle cx="12" cy="12" r="2.25" />
-        </svg>
-      );
-    case "sun":
-      return (
-        <svg className={common} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M12 8.25a3.75 3.75 0 100 7.5 3.75 3.75 0 000-7.5z"
-          />
-        </svg>
-      );
-    default:
-      return (
-        <svg className={common} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m6-6H6" />
-        </svg>
-      );
-  }
-}
-
 function formatPriceVnd(value: number) {
   return `${value.toLocaleString("vi-VN")}đ`;
+}
+
+function SectionTitle({ kicker, children }: { kicker: string; children: ReactNode }) {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.4em] text-[#9a7b4f]">{kicker}</p>
+      <h2 className="mt-2 font-display text-2xl font-light tracking-wide text-[#1a1d28] sm:text-3xl">{children}</h2>
+      <div className="mt-4 h-px w-16 max-w-full bg-gradient-to-r from-[#c4a35a] to-transparent" />
+    </div>
+  );
 }
 
 function SectionLinks({ className }: { className?: string }) {
@@ -77,91 +41,17 @@ function SectionLinks({ className }: { className?: string }) {
     { label: "Xem tất cả →", to: "/products" },
   ];
   return (
-    <div className={cn("flex flex-wrap items-center justify-end gap-x-4 gap-y-2 text-xs font-medium text-slate-600", className)}>
+    <div className={cn("flex flex-wrap items-center justify-end gap-x-4 gap-y-2 text-xs font-medium tracking-wide text-stone-600", className)}>
       {links.map((item) => (
-        <Link key={item.label} to={item.to} className="transition hover:text-[#2bb6a3]">
+        <Link
+          key={item.label}
+          to={item.to}
+          className="transition duration-200 ease-in-out hover:text-[#6d4c41] hover:underline decoration-[#c4a35a] underline-offset-4"
+        >
           {item.label}
         </Link>
       ))}
     </div>
-  );
-}
-
-function ProductCard({ product }: { product: HomeProductCard }) {
-  return (
-    <Link
-      to={`/products/${encodeURIComponent(product.slug)}`}
-      className={cn(
-        "group block rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition duration-300",
-        "hover:border-[#2bb6a3]/25 hover:bg-teal-50 hover:shadow-md"
-      )}
-    >
-      <article>
-      <div className="relative overflow-hidden rounded-lg border border-slate-100 bg-slate-50/80">
-        <p className="absolute left-0 right-0 top-3 z-[1] text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
-          anna eyewear
-        </p>
-        <div className="flex min-h-[160px] items-center justify-center px-3 pb-6 pt-10 sm:min-h-[180px]">
-          {product.image ? (
-            <img
-              src={product.image}
-              alt={product.name}
-              className="h-32 max-h-36 w-full max-w-[200px] object-contain transition duration-500 ease-out group-hover:scale-105"
-            />
-          ) : (
-            <span className="text-xs font-medium text-slate-400">Chưa có ảnh</span>
-          )}
-        </div>
-      </div>
-      <h4 className="mt-4 line-clamp-2 text-center text-xs font-bold uppercase leading-snug tracking-wide text-slate-900">
-        {product.name}
-      </h4>
-      <p className="mt-2 text-center text-sm font-bold text-[#2bb6a3]">{formatPriceVnd(product.price)}</p>
-      </article>
-    </Link>
-  );
-}
-
-function ComboCard({ combo }: { combo: Combo }) {
-  const id = String(combo._id ?? combo.id ?? "");
-  const slug = String(combo.slug ?? "");
-  const link = `/combos/${encodeURIComponent(slug || id)}`;
-  const price = typeof combo.combo_price === "number" ? combo.combo_price : 0;
-  const image = comboPreviewImage(combo);
-  return (
-    <Link
-      to={link}
-      className={cn(
-        "group block rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition duration-300",
-        "hover:border-[#2bb6a3]/25 hover:bg-teal-50 hover:shadow-md"
-      )}
-    >
-      <article>
-        <div className="relative overflow-hidden rounded-lg border border-slate-100 bg-slate-50/80">
-          <p className="absolute left-0 right-0 top-3 z-[1] text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
-            combo eyewear
-          </p>
-          <div className="flex min-h-[160px] items-center justify-center px-3 pb-6 pt-10 sm:min-h-[180px]">
-            {image ? (
-              <img
-                src={image}
-                alt={combo.name ?? "Combo"}
-                className="h-32 max-h-36 w-full max-w-[200px] object-contain transition duration-500 ease-out group-hover:scale-105"
-              />
-            ) : (
-              <span className="text-xs font-medium text-slate-400">Chưa có ảnh</span>
-            )}
-          </div>
-        </div>
-        <div className="px-1 pt-3 text-center">
-          <h4 className="mt-3 line-clamp-2 text-sm font-bold uppercase leading-snug tracking-wide text-slate-900">
-            {combo.name ?? "Combo"}
-          </h4>
-          <p className="mt-2 text-xs text-slate-500">{combo.description ?? "Gọng + tròng tối ưu cho nhu cầu sử dụng."}</p>
-        </div>
-        <p className="mt-3 text-center text-sm font-bold text-[#2bb6a3]">{formatPriceVnd(price)}</p>
-      </article>
-    </Link>
   );
 }
 
@@ -239,53 +129,68 @@ export default function HomePage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-white font-sans text-slate-900">
-      <div className="flex items-center justify-center gap-8 bg-[#2bb6a3] px-6 py-3 text-center text-xs font-semibold uppercase tracking-widest text-white">
-        <button type="button" className="opacity-90 transition hover:opacity-100" aria-label="Trước">
+    <div className="min-h-screen bg-[#f4f1eb] font-sans text-stone-900">
+      <div className="flex items-center justify-center gap-6 border-b border-[#c4a35a]/20 bg-gradient-to-r from-[#0f1218] via-[#1a1f2e] to-[#0f1218] px-6 py-2.5 text-center text-[11px] font-medium uppercase tracking-[0.28em] text-[#d4c4a8] sm:gap-10 sm:py-3">
+        <button type="button" className="text-[#8a7a6a] transition hover:text-[#c4a35a]" aria-label="Trước">
           ‹
         </button>
-        <span>Thu cũ đổi mới</span>
-        <button type="button" className="opacity-90 transition hover:opacity-100" aria-label="Sau">
+        <span>Thu cũ đổi mới · ưu đãi tại cửa hàng</span>
+        <button type="button" className="text-[#8a7a6a] transition hover:text-[#c4a35a]" aria-label="Sau">
           ›
         </button>
       </div>
 
       <StoreHeader />
 
-      {/* Hero — bản mẫu: 50/50 ảnh model + cột beige, headline serif */}
-      <section className="relative min-h-[420px] overflow-hidden bg-[#d4c4b0] lg:min-h-[480px]">
+      <section className="relative min-h-[440px] overflow-hidden bg-[#0f1218] lg:min-h-[520px]">
         <div className="mx-auto grid max-w-6xl lg:grid-cols-2">
-          <div className="relative min-h-[280px] lg:min-h-[480px]">
+          <div className="group relative min-h-[300px] overflow-hidden transition-shadow duration-500 ease-out hover:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.35)] lg:min-h-[520px] lg:hover:ring-1 lg:hover:ring-inset lg:hover:ring-white/12">
             <img
               src={HERO_MODEL}
-              alt="Anna Eyewear — Chào hè rực rỡ"
-              className="absolute inset-0 h-full w-full object-cover object-center"
+              alt="MYLENS — Bộ sưu tập mới"
+              className="absolute inset-0 z-0 h-full w-full object-cover object-center will-change-transform brightness-[0.92] contrast-[1.03] saturate-[1.02] transition-[transform,filter,box-shadow] duration-[1.1s] ease-out motion-reduce:transition-none group-hover:scale-105 group-hover:brightness-100 group-hover:contrast-[1.04] group-hover:duration-1000 motion-reduce:group-hover:scale-100 motion-reduce:group-hover:brightness-[0.92] md:group-hover:scale-[1.04]"
             />
-            <div className="absolute inset-0 bg-gradient-to-r from-black/20 to-transparent lg:hidden" aria-hidden />
+            <div
+              className="absolute inset-0 z-[1] bg-gradient-to-r from-[#0a0c10]/80 via-[#0a0c10]/25 to-transparent transition-opacity duration-700 ease-out group-hover:from-[#0a0c10]/60 group-hover:via-[#0a0c10]/20 lg:from-[#0f1218]/50 group-hover:lg:from-[#0f1218]/35"
+              aria-hidden
+            />
+            <div
+              className="absolute inset-0 z-[1] bg-gradient-to-t from-[#0f1218]/50 to-transparent opacity-80 transition-opacity duration-500 group-hover:opacity-65 lg:opacity-100 group-hover:lg:opacity-75"
+              aria-hidden
+            />
+            <div
+              className="pointer-events-none absolute inset-0 z-[2] bg-gradient-to-br from-[#c4a35a]/0 via-transparent to-[#0f1218]/0 opacity-0 transition duration-1000 group-hover:opacity-100 group-hover:from-[#c4a35a]/[0.05] group-hover:via-transparent group-hover:to-[#0a0c10]/0"
+              aria-hidden
+            />
+            <div className="absolute bottom-0 left-0 right-0 z-[1] h-20 bg-gradient-to-t from-[#0f1218] to-transparent lg:hidden" aria-hidden />
           </div>
-          <div className="relative flex flex-col justify-center px-6 py-12 lg:px-12">
-            <div className="absolute inset-0 hidden bg-[#d4c4b0] lg:block" aria-hidden />
-            <div className="relative z-10 max-w-lg text-white lg:text-slate-900">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/90 lg:text-slate-600">
-                Deal xinh lung linh
-              </p>
-              <h1 className="mt-2 font-display text-4xl font-semibold capitalize leading-tight tracking-tight text-white drop-shadow-sm sm:text-5xl lg:text-slate-900 lg:drop-shadow-none">
-                Chào hè rực rỡ
+          <div className="relative flex flex-col justify-center px-6 py-14 lg:min-h-[520px] lg:px-12 lg:py-16">
+            <div
+              className="absolute inset-0 hidden bg-gradient-to-br from-[#1a1f2e] via-[#12171f] to-[#0a0d12] lg:block"
+              aria-hidden
+            />
+            <div className="relative z-10 max-w-lg text-stone-100">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.38em] text-[#c4a35a]">Tinh tế · Bền vững</p>
+              <h1 className="mt-4 font-display text-4xl font-light leading-[1.15] tracking-tight sm:text-5xl lg:text-[2.75rem]">
+                Kính mắt
+                <span className="mt-1 block text-stone-300/95">cao cấp cho bạn</span>
               </h1>
-              <p className="mt-3 text-sm text-white/90 lg:text-slate-600">15.04 — 10.05</p>
+              <p className="mt-5 max-w-md text-sm leading-relaxed text-stone-400">
+                Cân bằng thẩm mỹ &amp; trải nghiệm đeo — lựa chọn gọng, tròng và dịch vụ cá nhân hóa tại MYLENS.
+              </p>
             </div>
-            <div className="relative z-10 mt-8 grid gap-3 sm:grid-cols-3">
+            <div className="relative z-10 mt-10 grid gap-3 sm:grid-cols-3">
               {[
-                { t: "Gọng kính 1K", d: "Áp dụng khi cắt từ tròng kính Kochi" },
-                { t: "Thu cũ đổi mới", d: "-800K Không điều kiện" },
-                { t: "Kính râm sale", d: "Lên đến 49%" },
+                { t: "Gọng ngoại nhập", d: "Cận chính hãng, cắt cạnh" },
+                { t: "Tròng chống ánh sáng xanh", d: "Theo công nghệ Zeiss" },
+                { t: "Thu cũ đổi mới", d: "Lên tới 800.000đ" },
               ].map((box) => (
                 <div
                   key={box.t}
-                  className="rounded-lg border border-white/30 bg-white/15 p-3 text-left text-xs text-white backdrop-blur-sm lg:border-slate-200/80 lg:bg-white/90 lg:text-slate-800 lg:backdrop-blur-none"
+                  className="rounded-sm border border-[#c4a35a]/20 bg-white/[0.04] p-3.5 text-left text-xs text-stone-200 backdrop-blur-sm transition duration-200 hover:border-[#c4a35a]/35"
                 >
-                  <p className="font-bold uppercase leading-snug tracking-wide">{box.t}</p>
-                  <p className="mt-1 text-[11px] opacity-90 lg:opacity-80">{box.d}</p>
+                  <p className="font-semibold uppercase tracking-wide text-[#c4a35a]">{box.t}</p>
+                  <p className="mt-1.5 text-[11px] leading-snug text-stone-400">{box.d}</p>
                 </div>
               ))}
             </div>
@@ -293,106 +198,133 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Danh mục — icon trong vòng tròn, căn giữa */}
-      <section className="border-b border-slate-100 bg-slate-50/60 py-12">
-        <div className="mx-auto max-w-6xl px-6 lg:px-8">
-          <h2 className="text-center text-xs font-bold uppercase tracking-[0.3em] text-slate-500">Danh mục nổi bật</h2>
-          <div className="mt-8 flex flex-wrap items-start justify-center gap-x-6 gap-y-8 sm:gap-x-10">
-            {CATEGORY_ITEMS.map((cat) => (
-              <Link
-                key={cat.label}
-                to={cat.href}
-                className="group flex w-[88px] flex-col items-center text-center sm:w-[100px]"
-              >
-                <span className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full border-2 border-slate-200 bg-white shadow-sm transition duration-300 group-hover:border-[#2bb6a3]/50 group-hover:shadow-md sm:h-24 sm:w-24">
-                  <span className="flex h-10 w-10 items-center justify-center sm:h-11 sm:w-11">
-                    <CategoryIcon type={cat.icon} />
-                  </span>
-                </span>
-                <span className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-700 transition group-hover:text-[#2bb6a3]">
-                  {cat.label}
-                </span>
-              </Link>
-            ))}
-          </div>
-        </div>
-      </section>
+      <HomeFeaturedCategories />
 
-      <section className="mx-auto max-w-6xl px-6 py-16 lg:px-8 lg:py-20">
-        <div className="mb-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <h3 className="text-lg font-bold uppercase tracking-[0.28em] text-[#2bb6a3] sm:text-left">Best seller</h3>
+      <section className="border-t border-stone-200/30 bg-gradient-to-b from-[#f7f4ed] to-[#f0ebe0]">
+        <div className="mx-auto max-w-6xl px-6 py-16 sm:px-6 lg:px-8 lg:py-20">
+        <div className="mb-12 flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+          <SectionTitle kicker="Bộ sưu tập">Bán chạy nhất</SectionTitle>
           <SectionLinks />
         </div>
 
         {loadingProducts ? (
-          <p className="py-12 text-center text-sm font-medium text-slate-500">Đang tải sản phẩm…</p>
+          <p className="py-12 text-center text-sm font-medium text-stone-500">Đang tải sản phẩm…</p>
         ) : productsError ? (
-          <p className="rounded-lg border border-red-200 bg-red-50 py-8 text-center text-sm text-red-700">{productsError}</p>
+          <p className="rounded-lg border border-red-200/80 bg-red-50 py-8 text-center text-sm text-red-800">{productsError}</p>
         ) : bestProducts.length === 0 ? (
-          <p className="py-12 text-center text-sm text-slate-500">Chưa có sản phẩm.</p>
+          <p className="py-12 text-center text-sm text-stone-500">Chưa có sản phẩm.</p>
         ) : (
           <div className="grid grid-cols-2 gap-6 lg:grid-cols-4">
             {bestProducts.map((p) => (
-              <ProductCard key={p.id} product={p} />
+              <ShopShowcaseCard
+                key={p.id}
+                variant="luxe"
+                to={`/products/${encodeURIComponent(p.slug)}`}
+                title={p.name}
+                priceText={formatPriceVnd(p.price)}
+                imageUrl={p.image}
+                badge="MYLENS"
+              />
             ))}
           </div>
         )}
 
-        <div className="mt-12 flex justify-center">
-          <Button asChild variant="outline" className="h-11 rounded-full border-2 border-[#2bb6a3] px-10 text-sm font-semibold text-[#2bb6a3] transition hover:bg-[#2bb6a3]/10">
-            <Link to="/products">Xem toàn bộ sản phẩm</Link>
-          </Button>
+        <div className="mt-14 flex justify-center">
+          <Link
+            to="/products"
+            className="inline-flex h-12 min-w-[220px] items-center justify-center rounded-none border border-[#9a7b4f] bg-transparent px-10 text-xs font-semibold uppercase tracking-[0.2em] text-[#1a1d28] shadow-sm transition duration-300 ease-in-out hover:bg-[#9a7b4f]/[0.12] hover:shadow-md"
+          >
+            Xem toàn bộ sản phẩm
+          </Link>
+        </div>
         </div>
       </section>
 
-      <div className="w-full">
+      <div className="relative w-full overflow-hidden">
         <img
           src={MID_BANNER}
-          alt="Bộ sưu tập Anna Eyewear"
+          alt="Bộ sưu tập MYLENS"
           className="h-52 w-full object-cover sm:h-64 md:h-80 lg:h-96"
+        />
+        <div
+          className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#1a1d28]/30 via-transparent to-[#0f1218]/15"
+          aria-hidden
         />
       </div>
 
-      <section className="mx-auto max-w-6xl px-6 py-16 lg:px-8 lg:py-20">
-        <div className="mb-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <h3 className="text-lg font-bold uppercase tracking-[0.22em] text-[#2bb6a3] sm:text-left">Combo nổi bật</h3>
-          <Link to="/combos" className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-600 hover:text-[#2bb6a3]">
+      <section className="bg-[#faf8f4]">
+        <div className="mx-auto max-w-6xl px-6 py-16 lg:px-8 lg:py-20">
+        <div className="mb-12 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <SectionTitle kicker="Gói ưu đãi">Combo nổi bật</SectionTitle>
+          <Link
+            to="/combos"
+            className="shrink-0 text-xs font-semibold uppercase tracking-[0.2em] text-stone-600 transition hover:text-[#6d4c41]"
+          >
             Xem tất cả →
           </Link>
         </div>
         {loadingCombos ? (
-          <p className="py-12 text-center text-sm font-medium text-slate-500">Đang tải combo…</p>
+          <p className="py-12 text-center text-sm font-medium text-stone-500">Đang tải combo…</p>
         ) : combosError ? (
-          <p className="rounded-lg border border-red-200 bg-red-50 py-8 text-center text-sm text-red-700">{combosError}</p>
+          <p className="rounded-lg border border-red-200/80 bg-red-50 py-8 text-center text-sm text-red-800">{combosError}</p>
         ) : comboProducts.length === 0 ? (
-          <p className="py-12 text-center text-sm text-slate-500">Chưa có combo.</p>
+          <p className="py-12 text-center text-sm text-stone-500">Chưa có combo.</p>
         ) : (
           <div className="grid grid-cols-2 gap-6 lg:grid-cols-4">
-            {comboProducts.map((c) => (
-              <ComboCard key={String(c._id ?? c.id ?? c.slug)} combo={c} />
-            ))}
+            {comboProducts.map((c) => {
+              const id = String(c._id ?? c.id ?? "");
+              const slug = String(c.slug ?? "");
+              const link = `/combos/${encodeURIComponent(slug || id)}`;
+              const price = typeof c.combo_price === "number" ? c.combo_price : 0;
+              const image = comboPreviewImage(c);
+              return (
+                <ShopShowcaseCard
+                  key={String(c._id ?? c.id ?? c.slug)}
+                  variant="luxe"
+                  to={link}
+                  title={c.name ?? "Combo"}
+                  priceText={formatPriceVnd(price)}
+                  imageUrl={image}
+                  badge="COMBO"
+                  description={c.description ?? "Gọng + tròng tối ưu cho nhu cầu sử dụng."}
+                  titleClassName="mt-3 line-clamp-2 text-sm font-semibold uppercase leading-snug tracking-wide text-stone-800"
+                  priceClassName="mt-3 text-center text-sm font-bold text-[#6d4c41]"
+                />
+              );
+            })}
           </div>
         )}
+        </div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-6 py-16 lg:px-8 lg:py-20">
-        <div className="mb-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <h3 className="text-lg font-bold uppercase tracking-[0.22em] text-[#2bb6a3] sm:text-left">Sản phẩm mới</h3>
+      <section className="border-t border-stone-200/40 bg-[#f4f1eb]">
+        <div className="mx-auto max-w-6xl px-6 py-16 sm:px-6 lg:px-8 lg:py-20">
+        <div className="mb-12 flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+          <SectionTitle kicker="Cập nhật">Hàng mới về</SectionTitle>
           <SectionLinks />
         </div>
         {loadingProducts ? (
-          <p className="py-12 text-center text-sm font-medium text-slate-500">Đang tải sản phẩm…</p>
+          <p className="py-12 text-center text-sm font-medium text-stone-500">Đang tải sản phẩm…</p>
         ) : productsError ? (
-          <p className="rounded-lg border border-red-200 bg-red-50 py-8 text-center text-sm text-red-700">{productsError}</p>
+          <p className="rounded-lg border border-red-200/80 bg-red-50 py-8 text-center text-sm text-red-800">{productsError}</p>
         ) : newProducts.length === 0 ? (
-          <p className="py-12 text-center text-sm text-slate-500">Chưa có sản phẩm.</p>
+          <p className="py-12 text-center text-sm text-stone-500">Chưa có sản phẩm.</p>
         ) : (
           <div className="grid grid-cols-2 gap-6 lg:grid-cols-4">
             {newProducts.map((p) => (
-              <ProductCard key={`new-${p.id}`} product={p} />
+              <ShopShowcaseCard
+                key={`new-${p.id}`}
+                variant="luxe"
+                to={`/products/${encodeURIComponent(p.slug)}`}
+                title={p.name}
+                priceText={formatPriceVnd(p.price)}
+                imageUrl={p.image}
+                badge="NEW"
+              />
             ))}
           </div>
         )}
+        </div>
       </section>
 
       <SiteFooter />

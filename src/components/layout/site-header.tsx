@@ -1,6 +1,7 @@
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { isHeaderNavActive } from "@/lib/nav-active";
 
 const navItems = [
   { to: "/", label: "Trang chủ" },
@@ -37,11 +38,24 @@ function IconBag({ className }: { className?: string }) {
 
 function LogoMark() {
   return (
-    <Link to="/" className="flex items-center gap-2 text-slate-900">
-      <span className="grid h-9 w-9 place-content-center rounded border border-slate-200 text-xs font-bold tracking-tight">
-        A
+    <Link
+      to="/"
+      className="group flex min-w-0 shrink-0 items-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2BBBAD]/50"
+    >
+      <span
+        className="inline-block overflow-hidden rounded-xl bg-white/95 shadow-sm ring-1 ring-stone-200/50 transition duration-300 ease-out will-change-transform sm:rounded-2xl group-hover:scale-[1.02] group-hover:shadow-md group-hover:ring-stone-300/60 group-active:scale-[0.99] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
+      >
+        <img
+          src="/images/logo2.png"
+          alt="MYLENS Eyewear Store"
+          width={220}
+          height={64}
+          className="block h-9 w-auto max-w-[min(200px,46vw)] object-contain object-center sm:h-10 sm:max-w-[220px] md:h-11 md:max-w-[240px]"
+          loading="eager"
+          decoding="async"
+          draggable={false}
+        />
       </span>
-      <span className="hidden font-semibold sm:inline">anna</span>
     </Link>
   );
 }
@@ -53,30 +67,62 @@ interface SiteHeaderProps {
 }
 
 export default function SiteHeader({ rightSlot, cartCount = 0, className }: SiteHeaderProps) {
+  const { pathname, search } = useLocation();
+
   return (
-    <header className={cn("border-b border-slate-100 bg-white", className)}>
-      <div className="mx-auto flex max-w-6xl items-center gap-6 px-4 py-3 lg:px-6">
+    <header
+      className={cn(
+        "sticky top-0 z-50 border-b border-stone-200/50 bg-white/80 shadow-[0_4px_30px_-8px_rgba(15,18,25,0.12)] backdrop-blur-md supports-[backdrop-filter]:bg-white/70",
+        className
+      )}
+    >
+      <div className="h-0.5 w-full bg-gradient-to-r from-transparent via-[#2BBBAD] to-transparent opacity-90" aria-hidden />
+      <div className="mx-auto flex max-w-6xl items-center gap-6 px-4 py-3.5 lg:px-6">
         <LogoMark />
-        <nav className="hidden flex-1 items-center justify-center gap-6 text-sm text-slate-700 md:flex">
-          {navItems.map((item) => (
-            <Link key={item.label} to={item.to} className="whitespace-nowrap transition hover:text-[#2bb6a3]">
-              {item.label}
-            </Link>
-          ))}
+        <nav className="hidden flex-1 items-center justify-center gap-7 text-sm md:flex" aria-label="Menu chính">
+          {navItems.map((item) => {
+            const active = isHeaderNavActive(item.to, pathname, search);
+            return (
+              <Link
+                key={item.label}
+                to={item.to}
+                className={cn(
+                  "border-b-2 py-0.5 text-sm font-medium tracking-wide transition-all duration-300 ease-in-out",
+                  active
+                    ? "border-[#2BBBAD] text-[#2BBBAD]"
+                    : "border-transparent text-stone-600 hover:border-[#2BBBAD]/40 hover:text-[#2BBBAD]"
+                )}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
         </nav>
-        <div className="ml-auto flex items-center gap-3 text-slate-700">
-          <button type="button" className="rounded-full p-2 transition hover:bg-slate-50" aria-label="Tìm kiếm">
+        <div className="ml-auto flex items-center gap-2.5 text-stone-600 sm:gap-3">
+          <button
+            type="button"
+            className="rounded-full p-2 transition duration-200 ease-in-out hover:bg-stone-100/90 hover:text-[#2BBBAD]"
+            aria-label="Tìm kiếm"
+          >
             <IconSearch className="h-5 w-5" />
           </button>
           {rightSlot ?? (
             <>
-              <Link to="/login" className="rounded-full p-2 transition hover:bg-slate-50" aria-label="Tài khoản">
+              <Link
+                to="/login"
+                className="rounded-full p-2 transition duration-200 ease-in-out hover:bg-stone-100/90 hover:text-[#2BBBAD]"
+                aria-label="Tài khoản"
+              >
                 <IconUser className="h-5 w-5" />
               </Link>
-              <button type="button" className="relative rounded-full p-2 transition hover:bg-slate-50" aria-label="Giỏ hàng">
+              <button
+                type="button"
+                className="relative rounded-full p-2 transition duration-200 ease-in-out hover:bg-stone-100/90 hover:text-[#2BBBAD]"
+                aria-label="Giỏ hàng"
+              >
                 <IconBag className="h-5 w-5" />
                 {cartCount > 0 ? (
-                  <span className="absolute right-1 top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-0.5 text-[10px] font-bold text-white">
+                  <span className="absolute right-1 top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-[#2BBBAD] px-0.5 text-[10px] font-bold text-white shadow-sm">
                     {cartCount > 9 ? "9+" : cartCount}
                   </span>
                 ) : null}

@@ -20,6 +20,7 @@ export interface OpsOrdersQuery {
   status?: OpsFilterStatus;
   page?: number;
   pageSize?: number;
+  order_type?: string;
 }
 
 export async function getOpsOrders(params?: OpsOrdersQuery): Promise<Record<string, unknown>> {
@@ -27,6 +28,7 @@ export async function getOpsOrders(params?: OpsOrdersQuery): Promise<Record<stri
   if (params?.status) query.status = params.status;
   if (typeof params?.page === "number") query.page = params.page;
   if (typeof params?.pageSize === "number") query.pageSize = params.pageSize;
+  if (params?.order_type?.trim()) query.order_type = params.order_type.trim();
   const { data } = await axios.get<unknown>("/api/ops/orders", { params: query });
   return data && typeof data === "object" ? (data as Record<string, unknown>) : {};
 }

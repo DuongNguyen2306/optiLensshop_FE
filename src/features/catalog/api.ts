@@ -122,9 +122,56 @@ export async function updateProduct(
     model: string;
     material: string;
     description: string;
+    gender: string;
+    images: string[];
   }>
 ) {
   const { data } = await axios.put<unknown>(`/products/${encodeURIComponent(id)}`, body);
+  return data;
+}
+
+/** Cập nhật kèm ảnh upload (multipart), giống cơ chế POST /products khi tạo. */
+export async function updateProductMultipart(
+  id: string,
+  payload: {
+    images: File[];
+    name?: string;
+    type?: ProductType;
+    category?: string;
+    brand?: string;
+    model?: string;
+    material?: string;
+    description?: string;
+    gender?: string;
+  }
+) {
+  const fd = new FormData();
+  payload.images.forEach((file) => fd.append("images", file));
+  if (payload.name != null && payload.name !== "") {
+    fd.append("name", payload.name);
+  }
+  if (payload.type) {
+    fd.append("type", payload.type);
+  }
+  if (payload.category != null && payload.category !== "") {
+    fd.append("category", payload.category);
+  }
+  if (payload.brand != null && payload.brand !== "") {
+    fd.append("brand", payload.brand);
+  }
+  if (payload.model != null && payload.model !== "") {
+    fd.append("model", payload.model);
+  }
+  if (payload.material != null && payload.material !== "") {
+    fd.append("material", payload.material);
+  }
+  if (payload.description != null && payload.description !== "") {
+    fd.append("description", payload.description);
+  }
+  if (payload.gender != null && payload.gender !== "") {
+    fd.append("gender", payload.gender);
+  }
+  const { data } = await axios.put<unknown>(`/products/${encodeURIComponent(id)}`, fd);
   return data;
 }
 

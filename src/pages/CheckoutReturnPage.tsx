@@ -26,7 +26,7 @@ export default function CheckoutReturnPage() {
         : "border-slate-200 bg-slate-50/80";
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-transparent">
       <StoreHeader />
       <main className="mx-auto flex max-w-lg flex-col justify-center px-6 py-12 sm:min-h-[55vh] sm:py-16">
         <div className={cn("rounded-2xl border p-8 text-center shadow-sm", accent)}>

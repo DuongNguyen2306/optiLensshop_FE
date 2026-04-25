@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import LensParamsEditor from "@/components/cart/LensParamsEditor";
 import {
@@ -18,6 +18,7 @@ import {
   cartLineId,
   cartLineLensParams,
   cartLineQuantity,
+  cartLineSelectionKey,
   cartLineVariantLabel,
   cartRowRecord,
   formatPriceVnd,
@@ -34,11 +35,12 @@ import type { LensParams } from "@/types/shop";
 
 export default function CartPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [lineLoading, setLineLoading] = useState<Record<string, boolean>>({});
   const [lineError, setLineError] = useState<Record<string, string | null>>({});
   const [editingLensKey, setEditingLensKey] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
-
+  const [selectedItems, setSelectedItems] = useState<Record<string, boolean>>({});
   const cartQuery = useQuery({
     queryKey: ["cart"],
     queryFn: () => getCart(),
@@ -46,12 +48,33 @@ export default function CartPage() {
 
   const rows = cartItemsArrayFromResponse(cartQuery.data);
 
+  const cartLinesSignature = useMemo(
+    () => rows.map((item, i) => cartLineSelectionKey(cartRowRecord(item), i)).join("\0"),
+    [rows]
+  );
+
+  useEffect(() => {
+    setSelectedItems((prev) => {
+      const next: Record<string, boolean> = {};
+      rows.forEach((item, i) => {
+        const row = cartRowRecord(item);
+        const key = cartLineSelectionKey(row, i);
+        next[key] = key in prev ? Boolean(prev[key]) : true;
+      });
+      return next;
+    });
+  }, [cartLinesSignature]); // rows implied by cartLinesSignature
+
   const total = useMemo<number>(() => {
-    return rows.reduce<number>((acc, item) => {
+    return rows.reduce<number>((acc, item, i) => {
       const row = cartRowRecord(item);
+      const key = cartLineSelectionKey(row, i);
+      if (!selectedItems[key]) {
+        return acc;
+      }
       return acc + getCartItemUnitPrice(row) * cartLineQuantity(row);
     }, 0);
-  }, [rows]);
+  }, [rows, selectedItems]);
 
   const setLineBusy = (key: string, busy: boolean) =>
     setLineLoading((prev) => ({
@@ -65,10 +88,46 @@ export default function CartPage() {
       [key]: message,
     }));
 
-  const patchLine = async (row: Record<string, unknown>, quantity: number, lensParams?: LensParams | null) => {
+  // Hàm đổi trạng thái checkbox cho từng item
+  const toggleCheckbox = (key: string) => {
+    setSelectedItems((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
+
+  // Hàm chọn tất cả
+  const selectAll = () => {
+    const newSelection: Record<string, boolean> = {};
+    rows.forEach((item, i) => {
+      const row = cartRowRecord(item);
+      newSelection[cartLineSelectionKey(row, i)] = true;
+    });
+    setSelectedItems(newSelection);
+  };
+
+  // Hàm bỏ chọn tất cả
+  const deselectAll = () => {
+    setSelectedItems({});
+  };
+
+  // Kiểm tra tất cả đã được chọn chưa
+  const allSelected =
+    rows.length > 0 &&
+    rows.every((item, i) => {
+      const row = cartRowRecord(item);
+      return selectedItems[cartLineSelectionKey(row, i)];
+    });
+
+  const patchLine = async (
+    lineKey: string,
+    row: Record<string, unknown>,
+    quantity: number,
+    lensParams?: LensParams | null
+  ) => {
     const comboId = cartLineComboId(row);
     const itemId = cartLineId(row);
-    const key = String(comboId || itemId || row._id || row.id || "");
+    const key = lineKey;
 
     if (!comboId && !itemId) {
       toast.error("Không xác định được dòng hàng. Vui lòng tải lại trang.");
@@ -100,11 +159,11 @@ export default function CartPage() {
     }
   };
 
-  const removeLine = async (row: Record<string, unknown>) => {
+  const removeLine = async (lineKey: string, row: Record<string, unknown>) => {
     const itemId = cartLineId(row);
     const comboId = cartLineComboId(row);
-    const key = itemId || comboId;
-    if (!key) {
+    const key = lineKey;
+    if (!itemId && !comboId) {
       return;
     }
     setLineBusy(key, true);
@@ -152,9 +211,35 @@ export default function CartPage() {
         ) : (
           <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_320px]">
             <section className="min-w-0">
-              <div className="hidden grid-cols-[44px_1fr_120px_120px_120px] items-center border-b border-slate-200 pb-3 text-sm font-semibold text-slate-800 md:grid">
+              <div className="mb-2 flex items-center gap-2 border-b border-slate-200 pb-3 md:hidden">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 shrink-0 rounded border-slate-300 text-[#2bb6a3]"
+                  checked={allSelected}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      selectAll();
+                    } else {
+                      deselectAll();
+                    }
+                  }}
+                />
+                <span className="text-sm font-semibold text-slate-800">Chọn tất cả</span>
+              </div>
+              <div className="hidden grid-cols-[44px_1fr_120px_140px_140px] items-center border-b border-slate-200 pb-3 text-sm font-semibold text-slate-800 md:grid">
                 <span className="grid place-items-center">
-                  <input type="checkbox" checked readOnly className="h-4 w-4 rounded border-slate-300 text-[#2bb6a3]" />
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-slate-300 text-[#2bb6a3]"
+                    checked={allSelected}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        selectAll();
+                      } else {
+                        deselectAll();
+                      }
+                    }}
+                  />
                 </span>
                 <span>Thông tin sản phẩm</span>
                 <span className="text-center">Giá</span>
@@ -165,9 +250,8 @@ export default function CartPage() {
               <ul className="divide-y divide-slate-100">
                 {rows.map((item, i) => {
                   const row = cartRowRecord(item);
-                  const itemId = cartLineId(row);
                   const comboId = cartLineComboId(row);
-                  const key = String(itemId || comboId || row._id || row.id || i);
+                  const key = cartLineSelectionKey(row, i);
                   const name = getCartItemDisplayName(row);
                   const varLabel = cartLineVariantLabel(row);
                   const img = getCartItemImage(row);
@@ -181,10 +265,15 @@ export default function CartPage() {
                   const missingPriceData = isCartItemMissingPriceData(row);
                   return (
                     <li key={key} className="py-4">
-                      <div className="grid gap-3 md:grid-cols-[44px_1fr_120px_140px_140px] md:items-center">
-                      <span className="hidden md:grid md:place-items-center">
-                        <input type="checkbox" checked readOnly className="h-4 w-4 rounded border-slate-300 text-[#2bb6a3]" />
-                      </span>
+                      <div className="grid grid-cols-[36px_1fr] gap-2 md:grid-cols-[44px_1fr_120px_140px_140px] md:items-center md:gap-3">
+                        <span className="flex items-start justify-center pt-1 md:items-center md:justify-center md:pt-0">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-[#2bb6a3] md:mt-0"
+                            checked={Boolean(selectedItems[key])}
+                            onChange={() => toggleCheckbox(key)}
+                          />
+                        </span>
                       <div className="flex min-w-0 gap-3">
                         <div className="relative h-20 w-20 shrink-0 overflow-hidden border border-slate-200 bg-slate-50">
                           {img ? (
@@ -212,7 +301,7 @@ export default function CartPage() {
                           className="w-8 text-center text-slate-500 disabled:opacity-50"
                           disabled={busy || qty <= 1}
                           onClick={() => {
-                            void patchLine(row, qty - 1);
+                            void patchLine(key, row, qty - 1);
                           }}
                         >
                           -
@@ -223,7 +312,7 @@ export default function CartPage() {
                           className="w-8 text-center text-[#2bb6a3] disabled:opacity-50"
                           disabled={busy}
                           onClick={() => {
-                            void patchLine(row, qty + 1);
+                            void patchLine(key, row, qty + 1);
                           }}
                         >
                           +
@@ -244,7 +333,7 @@ export default function CartPage() {
                           className="rounded-full border border-red-200 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
                           disabled={busy}
                           onClick={() => {
-                            void removeLine(row);
+                            void removeLine(key, row);
                           }}
                         >
                           {busy ? "Đang xử lý..." : "Xóa"}
@@ -258,7 +347,7 @@ export default function CartPage() {
                             initialValue={currentLensParams}
                             submitting={busy}
                             onSubmit={(lensParams) => {
-                              void patchLine(row, qty, lensParams);
+                              void patchLine(key, row, qty, lensParams);
                             }}
                           />
                         </div>
@@ -308,15 +397,35 @@ export default function CartPage() {
                 </div>
               </div>
               <div className="px-5 pb-5">
-                <Link
-                  to="/checkout"
+                <button
+                  type="button"
+                  onClick={() => {
+                    const keys = rows
+                      .map((line, idx) => {
+                        const r = cartRowRecord(line);
+                        const k = cartLineSelectionKey(r, idx);
+                        return selectedItems[k] ? k : null;
+                      })
+                      .filter((k): k is string => Boolean(k));
+                    if (keys.length === 0) {
+                      toast.error("Vui lòng chọn ít nhất một sản phẩm để thanh toán.");
+                      return;
+                    }
+                    const unstable = keys.filter((k) => k.startsWith("__row_"));
+                    if (unstable.length > 0) {
+                      toast.error("Giỏ hàng thiếu mã dòng hợp lệ. Vui lòng tải lại trang.");
+                      return;
+                    }
+                    navigate(`/checkout?lines=${encodeURIComponent(keys.join(","))}`);
+                  }}
                   className={cn(
                     "inline-flex h-11 w-full items-center justify-center rounded-full text-sm font-semibold text-white transition",
-                    "bg-[#2bb6a3] hover:brightness-[0.98]"
+                    "bg-[#2bb6a3] hover:brightness-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
                   )}
+                  disabled={total <= 0}
                 >
                   Thanh toán ngay
-                </Link>
+                </button>
               </div>
             </aside>
           </div>

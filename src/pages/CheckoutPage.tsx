@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { Province, District, Ward } from "sub-vn";
@@ -24,6 +24,7 @@ import {
   cartLineProductName,
   cartLineQuantity,
   cartLineUnitPrice,
+  cartLineSelectionKey,
   cartLineVariantEntityId,
   cartLineVariantLabel,
   cartRowRecord,
@@ -72,6 +73,8 @@ function readProfilePhone(userLike: unknown): string {
 
 export default function CheckoutPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const linesQueryValue = searchParams.get("lines");
   const queryClient = useQueryClient();
   const authUser = useAppSelector((s) => s.auth.user);
   const cartQuery = useQuery({
@@ -83,12 +86,32 @@ export default function CheckoutPage() {
     queryFn: () => getMyAddresses(),
   });
   const rows = cartItemsArrayFromResponse(cartQuery.data);
+
+  const selectedLineKeySet = useMemo(() => {
+    if (!linesQueryValue?.trim()) {
+      return null as Set<string> | null;
+    }
+    return new Set(
+      linesQueryValue
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    );
+  }, [linesQueryValue]);
+
+  const checkoutRows = useMemo(() => {
+    if (!selectedLineKeySet) {
+      return rows;
+    }
+    return rows.filter((item, idx) => selectedLineKeySet.has(cartLineSelectionKey(cartRowRecord(item), idx)));
+  }, [rows, selectedLineKeySet]);
+
   const subtotal = useMemo<number>(() => {
-    return rows.reduce<number>((sum, item) => {
+    return checkoutRows.reduce<number>((sum, item) => {
       const row = cartRowRecord(item);
       return sum + cartLineUnitPrice(row) * cartLineQuantity(row);
     }, 0);
-  }, [rows]);
+  }, [checkoutRows]);
 
   const [addressLine, setAddressLine] = useState("");
   const [selectedAddress, setSelectedAddress] = useState("");
@@ -193,8 +216,12 @@ export default function CheckoutPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (rows.length === 0) {
-      toast.error("Giỏ hàng đang trống, chưa thể thanh toán.");
+    if (checkoutRows.length === 0) {
+      toast.error(
+        selectedLineKeySet && selectedLineKeySet.size > 0
+          ? "Không tìm thấy sản phẩm đã chọn trong giỏ. Vui lòng quay lại giỏ hàng."
+          : "Giỏ hàng đang trống, chưa thể thanh toán."
+      );
       return;
     }
     if (usingCustomAddress) {
@@ -222,8 +249,8 @@ export default function CheckoutPage() {
       toast.error("Vui lòng nhập số điện thoại hợp lệ (9-11 số).");
       return;
     }
-    const checkoutItems = buildCheckoutItemsFromRows(rows);
-    if (checkoutItems.length !== rows.length) {
+    const checkoutItems = buildCheckoutItemsFromRows(checkoutRows);
+    if (checkoutItems.length !== checkoutRows.length) {
       toast.error("Giỏ hàng có dòng dữ liệu lỗi (thiếu variant/combo id). Vui lòng xóa dòng lỗi và thử lại.");
       return;
     }
@@ -236,8 +263,16 @@ export default function CheckoutPage() {
         await queryClient.invalidateQueries({ queryKey: ["cart"] });
         return;
       }
-      const freshCheckoutItems = buildCheckoutItemsFromRows(freshRows);
-      if (freshCheckoutItems.length !== freshRows.length) {
+      const freshCheckoutRows = selectedLineKeySet
+        ? freshRows.filter((item, idx) => selectedLineKeySet.has(cartLineSelectionKey(cartRowRecord(item), idx)))
+        : freshRows;
+      if (freshCheckoutRows.length === 0) {
+        toast.error("Các sản phẩm đã chọn không còn trong giỏ. Vui lòng quay lại giỏ hàng.");
+        await queryClient.invalidateQueries({ queryKey: ["cart"] });
+        return;
+      }
+      const freshCheckoutItems = buildCheckoutItemsFromRows(freshCheckoutRows);
+      if (freshCheckoutItems.length !== freshCheckoutRows.length) {
         toast.error("Có item trong giỏ không hợp lệ (thiếu variant_id/combo_id). Vui lòng kiểm tra lại giỏ hàng.");
         await queryClient.invalidateQueries({ queryKey: ["cart"] });
         return;
@@ -444,7 +479,7 @@ export default function CheckoutPage() {
             <div className="flex flex-wrap gap-3">
               <Button
                 type="submit"
-                disabled={submitting || rows.length === 0 || cartQuery.isPending}
+                disabled={submitting || checkoutRows.length === 0 || cartQuery.isPending}
                 className="h-11 rounded-full bg-[#2bb6a3] px-8 text-sm font-semibold uppercase tracking-wide text-white hover:brightness-[0.98]"
               >
                 {submitting
@@ -465,17 +500,27 @@ export default function CheckoutPage() {
           </form>
 
           <aside className="h-fit bg-slate-50 px-5 py-6">
-            <h2 className="text-4xl font-bold uppercase tracking-wide text-slate-900">Giỏ hàng ({rows.length})</h2>
+            <h2 className="text-4xl font-bold uppercase tracking-wide text-slate-900">
+              Giỏ hàng ({checkoutRows.length}
+              {selectedLineKeySet ? ` / ${rows.length}` : ""})
+            </h2>
             {cartQuery.isPending ? (
               <p className="mt-4 text-sm text-slate-600">Đang tải giỏ hàng...</p>
             ) : cartQuery.isError ? (
               <p className="mt-4 text-sm text-red-600">{getApiErrorMessage(cartQuery.error, "Không tải được giỏ hàng.")}</p>
             ) : rows.length === 0 ? (
               <p className="mt-4 text-sm text-slate-600">Giỏ hàng trống.</p>
+            ) : checkoutRows.length === 0 ? (
+              <p className="mt-4 text-sm text-amber-800">
+                Không có dòng nào khớp lựa chọn.{" "}
+                <Link to="/cart" className="font-semibold text-[#2bb6a3] underline">
+                  Quay lại giỏ hàng
+                </Link>
+              </p>
             ) : (
               <>
                 <ul className="mt-4 space-y-4">
-                  {rows.map((item, idx) => {
+                  {checkoutRows.map((item, idx) => {
                     const row = cartRowRecord(item);
                     const key = String(row._id ?? row.id ?? idx);
                     const name = cartLineProductName(row);

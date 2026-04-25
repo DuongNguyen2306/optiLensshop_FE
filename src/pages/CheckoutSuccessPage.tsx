@@ -21,7 +21,7 @@ export default function CheckoutSuccessPage() {
   });
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-transparent">
       <StoreHeader />
       <main className="mx-auto max-w-xl px-6 py-12">
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-8 text-center shadow-sm">

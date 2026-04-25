@@ -25,3 +25,12 @@ export function readPaymentReturnParams(params: URLSearchParams): PaymentReturnP
   const message = firstNonEmpty(params.get("msg"), params.get("message"), params.get("error"), params.get("errorMessage"));
   return { orderId, message };
 }
+
+/** Gateway đôi khi redirect nhầm route fail dù mã giao dịch là success. */
+export function isSuccessfulGatewayReturn(params: URLSearchParams): boolean {
+  const momoResultCode = firstNonEmpty(params.get("resultCode"), params.get("resultcode"));
+  const vnpResponseCode = firstNonEmpty(params.get("vnp_ResponseCode"), params.get("vnp_responsecode"));
+  if (momoResultCode === "0" || momoResultCode === "1000") return true;
+  if (vnpResponseCode === "00") return true;
+  return false;
+}

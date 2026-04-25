@@ -299,7 +299,7 @@ export default function StatisticsDashboardPage() {
         <p className="mt-1 text-sm text-slate-600">Tổng hợp doanh thu, đơn hàng và tồn kho theo thời gian.</p>
       </div>
 
-      <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur-sm sm:grid-cols-4">
+      <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur-sm sm:grid-cols-2 lg:grid-cols-4">
         <div className="space-y-1">
           <Label>Từ ngày</Label>
           <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />

@@ -5,7 +5,8 @@ import { toast } from "sonner";
 import { Eye, Search, SlidersHorizontal, X, ChevronLeft, ChevronRight, ShoppingBag } from "lucide-react";
 import { cancelMyOrder, fetchMyOrders } from "@/services/order.service";
 import { getApiErrorMessage } from "@/lib/api-error";
-import { canCustomerCancelOrder } from "@/lib/order-utils";
+import { canCustomerCancelOrder, orderMatchesKindFilter, orderTypeForListApi } from "@/lib/order-utils";
+import type { OrderKindFilter } from "@/lib/order-utils";
 import type { CustomerOrderListItem } from "@/types/order";
 import { ORDER_STATUS_FILTER_VALUES } from "@/types/order";
 import StoreHeader from "@/components/home/store-header";
@@ -77,7 +78,9 @@ function shortId(id: string | undefined): string {
 
 function payMethod(order: CustomerOrderListItem): string {
   const m = (order.payment as Record<string, unknown> | undefined)?.method;
-  if (typeof m === "string") return PAYMENT_LABELS[m.toLowerCase()] ?? m;
+  if (typeof m === "string" && m.trim()) return PAYMENT_LABELS[m.toLowerCase()] ?? m;
+  const direct = (order as Record<string, unknown>).payment_method;
+  if (typeof direct === "string" && direct.trim()) return PAYMENT_LABELS[direct.toLowerCase()] ?? direct;
   return "—";
 }
 
@@ -166,6 +169,7 @@ export default function OrdersHistoryPage() {
   const [limit, setLimit] = useState<number>(10);
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [search, setSearch] = useState("");
+  const [orderKind, setOrderKind] = useState<OrderKindFilter>("");
 
   const isCustomer = (user?.role ?? "").toLowerCase() === "customer";
 
@@ -181,8 +185,14 @@ export default function OrdersHistoryPage() {
   const lastErrorRef = useRef<string | null>(null);
 
   const ordersQuery = useQuery({
-    queryKey: ["orders", "my", page, limit, statusFilter],
-    queryFn: () => fetchMyOrders({ page, limit, status: statusFilter || undefined }),
+    queryKey: ["orders", "my", page, limit, statusFilter, orderKind],
+    queryFn: () =>
+      fetchMyOrders({
+        page,
+        limit,
+        status: statusFilter || undefined,
+        order_type: orderTypeForListApi(orderKind),
+      }),
     enabled: isCustomer,
     placeholderData: keepPreviousData,
   });
@@ -205,13 +215,17 @@ export default function OrdersHistoryPage() {
 
   // Client-side filter bằng search (theo mã đơn)
   const items = useMemo(() => {
-    if (!search.trim()) return allItems;
+    let list = allItems.filter((o) => orderMatchesKindFilter(o, orderKind));
+    if (!search.trim()) {
+      return list;
+    }
     const q = search.trim().toLowerCase();
-    return allItems.filter((o) => {
+    list = list.filter((o) => {
       const id = String(o._id ?? o.id ?? "").toLowerCase();
       return id.includes(q);
     });
-  }, [allItems, search]);
+    return list;
+  }, [allItems, search, orderKind]);
 
   if (!isCustomer) {
     return (
@@ -245,9 +259,34 @@ export default function OrdersHistoryPage() {
         </div>
 
         {/* Toolbar */}
-        <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:gap-4">
+        <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
+          <div className="flex w-full flex-wrap gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 sm:w-auto">
+            {(
+              [
+                { value: "" as const, label: "Tất cả đơn" },
+                { value: "stock" as const, label: "Hàng kho" },
+                { value: "prescription" as const, label: "Đơn kính" },
+                { value: "pre_order" as const, label: "Pre-order" },
+              ] satisfies { value: OrderKindFilter; label: string }[]
+            ).map((opt) => (
+              <button
+                key={opt.value || "all"}
+                type="button"
+                onClick={() => {
+                  setOrderKind(opt.value);
+                  setPage(1);
+                }}
+                className={cn(
+                  "rounded-lg px-3 py-1.5 text-xs font-semibold transition",
+                  orderKind === opt.value ? "bg-[#2bb6a3] text-white shadow-sm" : "text-slate-600 hover:bg-white"
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
           {/* Search */}
-          <div className="relative flex-1">
+          <div className="relative min-w-[200px] flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               type="text"

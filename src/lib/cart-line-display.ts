@@ -279,6 +279,17 @@ export function cartLineComboId(row: Record<string, unknown>): string {
   return "";
 }
 
+/** Khóa ổn định cho checkbox giỏ hàng và query `?lines=` khi thanh toán một phần. */
+export function cartLineSelectionKey(row: Record<string, unknown>, rowIndex: number): string {
+  const doc = row._id ?? row.id ?? row.item_id ?? row.cart_item_id;
+  if (typeof doc === "string" && doc.trim()) return doc.trim();
+  const combo = cartLineComboId(row);
+  if (combo) return combo;
+  const variant = cartLineVariantEntityId(row);
+  if (variant) return variant;
+  return `__row_${rowIndex}`;
+}
+
 export function cartLineVariantEntityId(row: Record<string, unknown>): string {
   const readLoose = (value: unknown): string => {
     if (typeof value === "string" && value.trim()) return value.trim();

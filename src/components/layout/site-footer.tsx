@@ -28,53 +28,125 @@ interface SiteFooterProps {
 
 export default function SiteFooter({ className }: SiteFooterProps) {
   return (
-    <footer className={cn("border-t border-stone-200 bg-[#f5f1eb]", className)}>
-      <div className="mx-auto grid max-w-6xl gap-10 px-6 py-12 md:grid-cols-3 md:gap-8 lg:px-8">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-900">Góp ý</h3>
-          <p className="mt-2 text-sm text-slate-600">
-            Anna luôn lắng nghe ý kiến của bạn để hoàn thiện trải nghiệm mua sắm.
-          </p>
-          <button
-            type="button"
-            className="mt-4 rounded-md border border-[#2bb6a3] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[#2bb6a3] transition hover:bg-[#2bb6a3]/10"
-          >
-            Đóng góp ý kiến
-          </button>
-        </div>
-        <div className="text-sm text-slate-600 md:text-center">
-          <p className="font-medium text-slate-900">Liên hệ</p>
-          <p className="mt-2">Hotline: 1900 0359</p>
-          <p>Email: marketing@kinhmatanna.com</p>
-          {SHOW_API_DOCS_FOOTER ? (
-            <p className="mt-3">
-              <a
-                href={API_DOCS_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-medium text-[#2bb6a3] hover:underline"
-              >
-                Tài liệu API (Swagger)
-              </a>
+    <footer
+      className={cn(
+        "border-t border-[#c4a35a]/25 bg-gradient-to-b from-[#1a1d28] via-[#12171f] to-[#0a0c10] text-stone-300/95",
+        className
+      )}
+    >
+      <div className="h-0.5 w-full bg-gradient-to-r from-transparent via-[#2BBBAD]/70 to-transparent opacity-80" aria-hidden />
+      <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+        <div className="grid grid-cols-1 gap-10 md:grid-cols-2 lg:grid-cols-4">
+          <div className="space-y-4">
+            <h3 className="font-display text-2xl font-light tracking-wide text-stone-100">MYLENS</h3>
+            <p className="text-sm leading-relaxed text-stone-400">
+              Hệ thống kính mắt chuyên nghiệp với nhiều năm kinh nghiệm. Chúng tôi cam kết mang đến trải nghiệm mua sắm tốt nhất cho bạn.
             </p>
-          ) : null}
-        </div>
-        <div className="flex flex-col items-start gap-3 md:items-end">
-          <span className="text-sm font-medium text-slate-900">Kết nối</span>
-          <div className="flex gap-3 text-[#2bb6a3]">
-            <a href="#" className="rounded-full border border-stone-200 bg-white p-2 hover:bg-stone-50" aria-label="Điện thoại">
-              <IconPhone className="h-5 w-5" />
-            </a>
-            <a href="#" className="rounded-full border border-stone-200 bg-white p-2 hover:bg-stone-50" aria-label="Facebook">
-              <span className="text-xs font-bold">f</span>
-            </a>
-            <a href="#" className="rounded-full border border-stone-200 bg-white p-2 hover:bg-stone-50" aria-label="Website">
-              <IconGlobe className="h-5 w-5" />
-            </a>
-            <a href="#" className="rounded-full border border-stone-200 bg-white p-2 hover:bg-stone-50" aria-label="Instagram">
-              <span className="text-xs font-bold">in</span>
-            </a>
+            <button
+              type="button"
+              className="rounded-sm border border-[#c4a35a] bg-transparent px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.2em] text-[#d4c4a8] transition duration-300 ease-in-out hover:bg-[#c4a35a]/10"
+            >
+              Góp ý cho Shop
+            </button>
           </div>
+
+          <div className="space-y-4">
+            <h3 className="text-[10px] font-bold uppercase tracking-[0.3em] text-[#9a7b4f]">Liên hệ</h3>
+            <ul className="space-y-3 text-sm text-stone-400">
+              <li className="flex items-start gap-2">
+                <IconPhone className="mt-0.5 h-4 w-4 shrink-0 text-[#2BBBAD]" />
+                <div>
+                  <p className="font-medium text-stone-200">Hotline</p>
+                  <p>1900 0359</p>
+                </div>
+              </li>
+              <li className="flex items-start gap-2">
+                <IconGlobe className="mt-0.5 h-4 w-4 shrink-0 text-[#2BBBAD]" />
+                <div>
+                  <p className="font-medium text-stone-200">Email</p>
+                  <p>MYLENS@gmail.com</p>
+                </div>
+              </li>
+            </ul>
+          </div>
+
+          <div className="space-y-4">
+            <h3 className="text-[10px] font-bold uppercase tracking-[0.3em] text-[#9a7b4f]">Liên kết nhanh</h3>
+            <ul className="space-y-2.5 text-sm text-stone-400">
+              <li>
+                <a href="#" className="transition duration-200 ease-in-out hover:text-[#2BBBAD]">
+                  Về chúng tôi
+                </a>
+              </li>
+              <li>
+                <a href="#" className="transition duration-200 ease-in-out hover:text-[#2BBBAD]">
+                  Sản phẩm
+                </a>
+              </li>
+              <li>
+                <a href="#" className="transition duration-200 ease-in-out hover:text-[#2BBBAD]">
+                  Dịch vụ
+                </a>
+              </li>
+              <li>
+                <a href="#" className="transition duration-200 ease-in-out hover:text-[#2BBBAD]">
+                  Chính sách
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          <div className="space-y-4">
+            <h3 className="text-[10px] font-bold uppercase tracking-[0.3em] text-[#9a7b4f]">Kết nối</h3>
+            <div className="flex flex-wrap gap-3">
+              <a
+                href="#"
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-stone-500/50 bg-stone-800/40 text-stone-300 transition duration-300 ease-in-out hover:border-[#2BBBAD] hover:text-[#2BBBAD]"
+                aria-label="Facebook"
+              >
+                <span className="text-sm font-bold">f</span>
+              </a>
+              <a
+                href="#"
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-stone-500/50 bg-stone-800/40 text-stone-300 transition duration-300 ease-in-out hover:border-[#2BBBAD] hover:text-[#2BBBAD]"
+                aria-label="Instagram"
+              >
+                <span className="text-sm font-bold">in</span>
+              </a>
+              <a
+                href="#"
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-stone-500/50 bg-stone-800/40 text-stone-300 transition duration-300 ease-in-out hover:border-[#2BBBAD] hover:text-[#2BBBAD]"
+                aria-label="Website"
+              >
+                <IconGlobe className="h-5 w-5" />
+              </a>
+              <a
+                href="tel:19000359"
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-stone-500/50 bg-stone-800/40 text-stone-300 transition duration-300 ease-in-out hover:border-[#2BBBAD] hover:text-[#2BBBAD]"
+                aria-label="Gọi ngay"
+              >
+                <IconPhone className="h-5 w-5" />
+              </a>
+            </div>
+            {SHOW_API_DOCS_FOOTER && (
+              <p className="mt-3 border-t border-stone-600/60 pt-3">
+                <a
+                  href={API_DOCS_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-medium text-stone-500 transition duration-200 hover:text-[#2BBBAD]"
+                >
+                  Tài liệu API (Swagger)
+                </a>
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-12 border-t border-stone-600/50 pt-8">
+          <p className="text-center text-sm text-stone-500">
+            © {new Date().getFullYear()} Mylens. Tất cả quyền được bảo lưu.
+          </p>
         </div>
       </div>
     </footer>

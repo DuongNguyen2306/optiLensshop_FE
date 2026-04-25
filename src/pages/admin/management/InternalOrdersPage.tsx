@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
@@ -6,7 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getApiErrorMessage } from "@/lib/api-error";
-import { nextStatusesByOrderType, normalizeOrderStatus, orderReadableStatus } from "@/lib/order-utils";
+import {
+  nextStatusesByOrderType,
+  normalizeOrderStatus,
+  orderReadableStatus,
+  orderTypeForListApi,
+} from "@/lib/order-utils";
+import type { OrderKindFilter } from "@/lib/order-utils";
 import { normalizeRole } from "@/lib/role-routing";
 import { getOpsOrders } from "@/services/ops-orders.service";
 import { confirmOrder, fetchAllOrders, updateOrderStatus } from "@/services/order.service";
@@ -183,10 +190,8 @@ const OPS_MANAGED_STATUSES = new Set([
   "packed",
   "shipped",
   "delivered",
-  "completed",
-  "return_requested",
 ]);
-const SALES_MANAGED_STATUSES = new Set(["confirmed", "cancelled", "returned", "refunded"]);
+const SALES_MANAGED_STATUSES = new Set(["confirmed", "cancelled"]);
 
 function readLensWorksheet(order: CustomerOrderListItem): Record<string, unknown> | null {
   const raw = (order as Record<string, unknown>).lens_worksheet;
@@ -258,8 +263,8 @@ function itemVariantInfo(item: Record<string, unknown>): { name: string; sku: st
   const name = typeof product?.name === "string" ? product.name : "—";
   const sku = typeof variant?.sku === "string" ? variant.sku : "—";
   const price = typeof variant?.price === "number" ? variant.price : null;
-  const variantImage = Array.isArray(variant?.images) ? variant.images.find((x): x is string => typeof x === "string" && x.trim()) : "";
-  const productImage = Array.isArray(product?.images) ? product.images.find((x): x is string => typeof x === "string" && x.trim()) : "";
+  const variantImage = Array.isArray(variant?.images) ? (variant.images.find((x): x is string => typeof x === "string" && Boolean(x.trim())) ?? "") : "";
+  const productImage = Array.isArray(product?.images) ? (product.images.find((x): x is string => typeof x === "string" && Boolean(x.trim())) ?? "") : "";
   return { name, sku, price, image: variantImage || productImage || "" };
 }
 
@@ -271,6 +276,7 @@ export default function InternalOrdersPage() {
   const [status, setStatus] = useState<string>("");
   const [paymentMethod, setPaymentMethod] = useState("");
   const [paymentStatus, setPaymentStatus] = useState("");
+  const [orderKind, setOrderKind] = useState<OrderKindFilter>("");
   const [confirmState, setConfirmState] = useState<{
     orderId: string;
     mode: "sales_confirm" | "sales_reject" | "ops_update";
@@ -282,11 +288,13 @@ export default function InternalOrdersPage() {
 
   const isSales = role === "sales";
   const isOps = role === "operations" || role === "manager" || role === "admin";
-  const isOperationsRole = role === "operations";
+  const isOperationsRole = role === "operations" || role === "manager" || role === "admin";
   const canUseSalesActions = role === "sales" || role === "manager" || role === "admin";
 
+  const orderTypeApi = orderTypeForListApi(orderKind);
+
   const ordersQuery = useQuery({
-    queryKey: ["orders", isOps ? "ops" : "all", page, limit, status, paymentMethod, paymentStatus],
+    queryKey: ["orders", isOps ? "ops" : "all", page, limit, status, paymentMethod, paymentStatus, orderKind],
     queryFn: async () => {
       if (isOps) {
         const normalizedStatus =
@@ -298,7 +306,12 @@ export default function InternalOrdersPage() {
           status === "delivered"
             ? status
             : undefined;
-        const opsData = await getOpsOrders({ page, pageSize: limit, status: normalizedStatus });
+        const opsData = await getOpsOrders({
+          page,
+          pageSize: limit,
+          status: normalizedStatus,
+          order_type: orderTypeApi,
+        });
         const opsRows = toOrderArray(opsData);
         if (opsRows.length > 0 || normalizedStatus) {
           return opsData;
@@ -310,6 +323,7 @@ export default function InternalOrdersPage() {
           status: undefined,
           payment_method: paymentMethod || undefined,
           payment_status: paymentStatus || undefined,
+          order_type: orderTypeApi,
         });
       }
       return fetchAllOrders({
@@ -318,22 +332,17 @@ export default function InternalOrdersPage() {
         status: status || undefined,
         payment_method: paymentMethod || undefined,
         payment_status: paymentStatus || undefined,
+        order_type: orderTypeApi,
       });
     },
   });
 
   const rows = useMemo(() => {
     const list = toOrderArray(ordersQuery.data);
-    if (!isOps) {
-      return list;
+    if (isOps && status) {
+      return list.filter((order) => normalizeOrderStatus(String(order.status ?? "")) === status);
     }
-    if (!status) {
-      return list;
-    }
-    return list.filter((order) => {
-      const s = normalizeOrderStatus(String(order.status ?? ""));
-      return s === status;
-    });
+    return list;
   }, [ordersQuery.data, isOps, status]);
   const pagination = useMemo(
     () => toPagination(ordersQuery.data, page, limit, rows.length),
@@ -367,11 +376,27 @@ export default function InternalOrdersPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-900">Đơn hàng nội bộ</h1>
         <p className="mt-1 text-sm text-slate-600">
-          {isOps ? "Ops workflow theo order_type: processing/manufacturing/received/packed/shipped/delivered." : "Luồng Sales xác nhận/từ chối đơn."}
+          {isOps ? "" : "Luồng Sales xác nhận/từ chối đơn."}
         </p>
       </div>
 
-      <div className="mb-5 grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="mb-5 grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <div className="space-y-1">
+          <Label>Loại đơn</Label>
+          <select
+            className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+            value={orderKind}
+            onChange={(e) => {
+              setOrderKind(e.target.value as OrderKindFilter);
+              setPage(1);
+            }}
+          >
+            <option value="">Tất cả</option>
+            <option value="stock">Hàng kho (stock)</option>
+            <option value="pre_order">Pre-order</option>
+            <option value="prescription">Gia công (prescription)</option>
+          </select>
+        </div>
         <div className="space-y-1">
           <Label>Trạng thái đơn</Label>
           <select
@@ -538,7 +563,6 @@ export default function InternalOrdersPage() {
                           <>
                             <Button
                               type="button"
-                              size="sm"
                               className="h-8 bg-[#2bb6a3] px-3 text-xs"
                               onClick={() =>
                                 setConfirmState({
@@ -553,7 +577,6 @@ export default function InternalOrdersPage() {
                             </Button>
                             <Button
                               type="button"
-                              size="sm"
                               variant="outline"
                               className="h-8 border-red-200 px-3 text-xs text-red-700"
                               onClick={() => {
@@ -571,25 +594,46 @@ export default function InternalOrdersPage() {
                           </>
                         ) : null}
 
-                        {nextStatusesFiltered.map((nextStatus) => (
+                        {/* Sales chỉ dùng Xác nhận / Từ chối cho pending */}
+                        {!isSales
+                          ? nextStatusesFiltered.map((nextStatus) => (
+                              <Button
+                                key={`${id}_${nextStatus}`}
+                                type="button"
+                                className="h-8 bg-indigo-600 px-3 text-xs text-white hover:bg-indigo-700"
+                                onClick={() =>
+                                  setConfirmState({
+                                    orderId: id,
+                                    mode: "ops_update",
+                                    title: `Chuyển sang "${orderReadableStatus(nextStatus)}"?`,
+                                    description: `Đơn sẽ chuyển từ "${orderReadableStatus(statusValue)}" sang "${orderReadableStatus(nextStatus)}".`,
+                                    nextStatus,
+                                  })
+                                }
+                              >
+                                {orderReadableStatus(nextStatus)}
+                              </Button>
+                            ))
+                          : null}
+                        {(statusValue === "return_requested" || statusValue === "returned" || statusValue === "refunded") && isOperationsRole ? (
+                          <Link to="/admin/returns">
+                            <Button
+                              type="button"
+                              className="h-8 bg-orange-500 px-3 text-xs text-white hover:bg-orange-600"
+                            >
+                              Xử lý trả hàng
+                            </Button>
+                          </Link>
+                        ) : null}
+                        <Link to={`/admin/orders/${encodeURIComponent(id)}`}>
                           <Button
-                            key={`${id}_${nextStatus}`}
                             type="button"
-                            size="sm"
-                            className="h-8 bg-indigo-600 px-3 text-xs text-white hover:bg-indigo-700"
-                            onClick={() =>
-                              setConfirmState({
-                                orderId: id,
-                                  mode: "ops_update",
-                                title: `Chuyển sang "${orderReadableStatus(nextStatus)}"?`,
-                                description: `Đơn sẽ chuyển từ "${orderReadableStatus(statusValue)}" sang "${orderReadableStatus(nextStatus)}".`,
-                                  nextStatus,
-                              })
-                            }
+                            variant="outline"
+                            className="h-8 px-3 text-xs"
                           >
-                            {orderReadableStatus(nextStatus)}
+                            Chi tiết
                           </Button>
-                        ))}
+                        </Link>
                       </div>
                     </td>
                   </tr>
@@ -602,13 +646,13 @@ export default function InternalOrdersPage() {
 
       <div className="mt-4 flex items-center justify-between">
         <p className="text-sm text-slate-600">
-          Tổng: <span className="font-semibold text-slate-900">{pagination.total}</span> đơn
+          Tổng: <span className="font-semibold text-slate-900">{pagination.total}</span> đơn · Trên trang: <span className="font-medium">{rows.length}</span> {orderKind ? `đơn sau lọc ${orderKind}` : ""}
         </p>
         <div className="flex gap-2">
           <Button
             type="button"
             variant="outline"
-            size="sm"
+            className="h-8 px-3 text-xs"
             disabled={page <= 1 || ordersQuery.isFetching}
             onClick={() => setPage((p) => Math.max(1, p - 1))}
           >
@@ -617,7 +661,7 @@ export default function InternalOrdersPage() {
           <Button
             type="button"
             variant="outline"
-            size="sm"
+            className="h-8 px-3 text-xs"
             disabled={page >= pagination.total_pages || ordersQuery.isFetching}
             onClick={() => setPage((p) => p + 1)}
           >

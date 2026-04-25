@@ -78,6 +78,8 @@ export interface InternalOrdersQuery {
   status?: string;
   payment_method?: string;
   payment_status?: string;
+  /** `stock` | `prescription` | `pre_order` — lọc danh sách theo loại đơn. */
+  order_type?: string;
 }
 
 /** Giá trị filter status gửi lên API (chuỗi rỗng = tất cả). */

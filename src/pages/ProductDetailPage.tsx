@@ -20,6 +20,7 @@ import type { ShopVariant } from "@/types/shop";
 import type { PaymentMethod, ShippingMethod } from "@/types/shop";
 import StoreHeader from "@/components/home/store-header";
 import SiteFooter from "@/components/layout/site-footer";
+import ShopShowcaseCard from "@/components/shop/shop-showcase-card";
 import { Button } from "@/components/ui/button";
 import { useAppSelector } from "@/store/hooks";
 
@@ -197,7 +198,7 @@ export default function ProductDetailPage() {
   const [quantity, setQuantity] = useState(1);
   const [preorderPhone, setPreorderPhone] = useState("");
   const [preorderAddress, setPreorderAddress] = useState("");
-  const [preorderPaymentMethod, setPreorderPaymentMethod] = useState<PaymentMethod>("cod");
+  const [preorderPaymentMethod, setPreorderPaymentMethod] = useState<PaymentMethod>("momo");
   const [preorderShippingMethod, setPreorderShippingMethod] = useState<ShippingMethod>("ship");
   const [adding, setAdding] = useState(false);
   const [buyingNow, setBuyingNow] = useState(false);
@@ -473,7 +474,7 @@ export default function ProductDetailPage() {
 
   if (detailQuery.isPending) {
     return (
-      <div className="min-h-screen bg-white">
+      <div className="min-h-screen bg-[#f4f1eb]">
         <StoreHeader />
         <p className="mx-auto max-w-4xl px-6 py-16 text-slate-600">Đang tải sản phẩm…</p>
       </div>
@@ -482,7 +483,7 @@ export default function ProductDetailPage() {
 
   if (detailQuery.isError || !product) {
     return (
-      <div className="min-h-screen bg-white">
+      <div className="min-h-screen bg-[#f4f1eb]">
         <StoreHeader />
         <div className="mx-auto max-w-4xl px-6 py-16">
           <p className="text-red-600">{getApiErrorMessage(detailQuery.error, "Không tải được sản phẩm.")}</p>
@@ -495,7 +496,7 @@ export default function ProductDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-[#f4f1eb]">
       <StoreHeader />
       <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
         <Link to="/" className="text-sm text-[#2bb6a3] hover:underline">
@@ -700,7 +701,6 @@ export default function ProductDetailPage() {
                       onChange={(e) => setPreorderPaymentMethod(e.target.value as PaymentMethod)}
                       className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none transition focus:border-[#2bb6a3]"
                     >
-                      <option value="cod">Thanh toán COD</option>
                       <option value="momo">Thanh toán MoMo</option>
                       <option value="vnpay">Thanh toán VNPay</option>
                     </select>
@@ -765,7 +765,7 @@ export default function ProductDetailPage() {
         <section className="py-10">
           <div className="mb-6 flex items-center justify-between">
             <h2 className="text-3xl font-bold uppercase tracking-wide text-slate-900">Tròng kính bổ trợ</h2>
-            <Link to="/" className="text-sm font-medium text-[#2bb6a3] hover:underline">
+            <Link to="/" className="text-sm font-medium text-[#2BBBAD] transition hover:underline">
               Xem thêm
             </Link>
           </div>
@@ -774,21 +774,17 @@ export default function ProductDetailPage() {
           ) : supportProductsQuery.data && supportProductsQuery.data.length > 0 ? (
             <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
               {supportProductsQuery.data.map((item) => (
-                <Link
+                <ShopShowcaseCard
                   key={item.id}
+                  variant="luxe"
                   to={`/products/${encodeURIComponent(item.slug)}`}
-                  className="group border border-slate-200 bg-white p-3 transition hover:border-[#2bb6a3]/50"
-                >
-                  <div className="h-36 overflow-hidden bg-slate-50">
-                    {item.image ? (
-                      <img src={item.image} alt={item.name} className="h-full w-full object-contain transition group-hover:scale-105" />
-                    ) : (
-                      <span className="grid h-full place-items-center text-xs text-slate-400">Chưa có ảnh</span>
-                    )}
-                  </div>
-                  <p className="mt-3 line-clamp-2 text-sm font-semibold uppercase leading-snug text-slate-900">{item.name}</p>
-                  <p className="mt-1 text-lg font-bold text-[#2bb6a3]">{formatPriceVnd(item.price)}</p>
-                </Link>
+                  title={item.name}
+                  priceText={formatPriceVnd(item.price)}
+                  imageUrl={item.image}
+                  compact
+                  titleClassName="mt-3 line-clamp-2 text-sm font-semibold uppercase leading-snug text-slate-900"
+                  priceClassName="mt-1 text-lg font-bold text-[#6d4c41]"
+                />
               ))}
             </div>
           ) : (

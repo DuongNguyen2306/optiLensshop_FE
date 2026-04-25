@@ -10,7 +10,7 @@ export default function LoginPage() {
       title="Đăng nhập"
       description="Đăng nhập bằng email và mật khẩu. Vui lòng xác thực email qua link trong hộp thư trước khi đăng nhập."
       imageSrc={LOGIN_HERO}
-      imageAlt="Model đeo kính Anna Eyewear"
+      imageAlt="Model đeo kính MYLENS"
     >
       <LoginForm />
     </AuthShell>

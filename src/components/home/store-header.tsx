@@ -42,7 +42,7 @@ export default function StoreHeader() {
           {isAuthenticated && user && canManageCatalog(user.role) ? (
             <Link
               to="/admin/catalog/products"
-              className="hidden text-sm font-medium text-slate-600 hover:text-[#2bb6a3] sm:inline"
+              className="hidden text-sm font-medium text-stone-600 transition duration-200 hover:text-[#2BBBAD] sm:inline"
               title="Quản lý catalog"
             >
               Quản lý catalog
@@ -51,7 +51,7 @@ export default function StoreHeader() {
           {isAuthenticated && user && canAccessStaffManagement(user.role) ? (
             <Link
               to="/admin/management/staff"
-              className="hidden text-sm font-medium text-slate-600 hover:text-[#2bb6a3] sm:inline"
+              className="hidden text-sm font-medium text-stone-600 transition duration-200 hover:text-[#2BBBAD] sm:inline"
               title="Quản lý nhân sự"
             >
               Nhân sự
@@ -60,7 +60,7 @@ export default function StoreHeader() {
           {isAuthenticated && user && canAccessInternalOrders(user.role) ? (
             <Link
               to="/admin/orders"
-              className="hidden text-sm font-medium text-slate-600 hover:text-[#2bb6a3] sm:inline"
+              className="hidden text-sm font-medium text-stone-600 transition duration-200 hover:text-[#2BBBAD] sm:inline"
               title="Đơn nội bộ"
             >
               Đơn nội bộ
@@ -69,7 +69,7 @@ export default function StoreHeader() {
           {isAuthenticated && (user?.role ?? "").toLowerCase() === "customer" ? (
             <Link
               to="/orders"
-              className="text-sm font-medium text-slate-600 hover:text-[#2bb6a3]"
+              className="text-sm font-medium text-stone-600 transition duration-200 hover:text-[#2BBBAD]"
               title="Đơn hàng của tôi"
             >
               Đơn hàng
@@ -78,19 +78,23 @@ export default function StoreHeader() {
           {isAuthenticated ? (
             <Link
               to="/profile"
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-[#2bb6a3]/15 text-sm font-semibold text-[#2bb6a3]"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-[#2BBBAD]/25 bg-[#2BBBAD]/10 text-sm font-semibold text-[#1a6b63] transition hover:bg-[#2BBBAD]/18"
               title={user?.email ?? "Hồ sơ"}
             >
               {initial}
             </Link>
           ) : (
-            <Link to="/login" className="rounded-full p-2 transition hover:bg-slate-50" aria-label="Đăng nhập">
+            <Link
+              to="/login"
+              className="rounded-full p-2 transition duration-200 ease-in-out hover:bg-stone-100/90 hover:text-[#2BBBAD]"
+              aria-label="Đăng nhập"
+            >
               <IconUser className="h-5 w-5" />
             </Link>
           )}
           <Link
             to="/cart"
-            className="relative rounded-full p-2 transition hover:bg-slate-50"
+            className="relative rounded-full p-2 transition duration-200 ease-in-out hover:bg-stone-100/90 hover:text-[#2BBBAD]"
             aria-label="Giỏ hàng"
           >
             <IconBag className="h-5 w-5" />

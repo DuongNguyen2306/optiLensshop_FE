@@ -88,3 +88,19 @@ export function nextStatusesByOrderType(orderType: string | undefined, currentSt
   }
   return [];
 }
+
+/** Lọc danh sách đơn theo `order_type` backend: `stock` | `prescription` | `pre_order`. Rỗng = tất cả. */
+export type OrderKindFilter = "" | "stock" | "prescription" | "pre_order";
+
+export function orderMatchesKindFilter(order: { order_type?: string } | null | undefined, kind: OrderKindFilter): boolean {
+  if (!kind) {
+    return true;
+  }
+  const t = String(order?.order_type ?? "stock").toLowerCase().trim();
+  return t === kind;
+}
+
+/** Giá trị gửi query `order_type` (GET /orders, /orders/all, ops…). Khớp từng loại với BE. */
+export function orderTypeForListApi(kind: OrderKindFilter): string | undefined {
+  return kind ? kind : undefined;
+}

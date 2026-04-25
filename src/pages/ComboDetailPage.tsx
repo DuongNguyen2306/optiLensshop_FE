@@ -155,7 +155,7 @@ export default function ComboDetailPage() {
   const [qty, setQty] = useState(1);
   const [preorderPhone, setPreorderPhone] = useState("");
   const [preorderAddress, setPreorderAddress] = useState("");
-  const [preorderPaymentMethod, setPreorderPaymentMethod] = useState<PaymentMethod>("cod");
+  const [preorderPaymentMethod, setPreorderPaymentMethod] = useState<PaymentMethod>("momo");
   const [preorderShippingMethod, setPreorderShippingMethod] = useState<ShippingMethod>("ship");
   const [adding, setAdding] = useState(false);
 
@@ -290,7 +290,7 @@ export default function ComboDetailPage() {
   };
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-[#f4f1eb]">
       <StoreHeader />
       <main className="mx-auto max-w-6xl px-6 py-10 font-sans">
         <Link to="/combos" className="text-sm font-medium text-[#2bb6a3] hover:underline">
@@ -445,7 +445,6 @@ export default function ComboDetailPage() {
                             onChange={(e) => setPreorderPaymentMethod(e.target.value as PaymentMethod)}
                             className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none transition focus:border-[#2bb6a3]"
                           >
-                            <option value="cod">Thanh toán COD</option>
                             <option value="momo">Thanh toán MoMo</option>
                             <option value="vnpay">Thanh toán VNPay</option>
                           </select>

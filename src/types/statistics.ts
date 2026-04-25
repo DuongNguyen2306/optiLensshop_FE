@@ -1,6 +1,8 @@
 export interface DateRangeQuery {
   start_date?: string;
   end_date?: string;
+  /** Lọc thống kê theo loại đơn: `pre_order`, `stock` (đơn thường), hoặc bỏ trống = tất cả. */
+  order_type?: string;
 }
 
 export interface StatisticsPaymentItem {
@@ -86,4 +88,49 @@ export interface StatisticsFunnelStep {
 export interface StatisticsFunnelResponse {
   total_orders?: number;
   steps?: StatisticsFunnelStep[];
+}
+
+export interface FinanceAnalyticsQuery {
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface FinanceAnalyticsResponse {
+  period?: {
+    startDate?: string;
+    endDate?: string;
+    groupBy?: "day" | "month" | string;
+  };
+  summary?: {
+    totalRevenue?: number;
+    grossRevenueRaw?: number;
+    totalRefundAmount?: number;
+    totalProfit?: number;
+    cashInHand?: number;
+    receivables?: number;
+  };
+  charts?: Array<{
+    date?: string;
+    revenue?: number;
+    cashIn?: number;
+  }>;
+  topProducts?: Array<{
+    variant_id?: string;
+    sku?: string | null;
+    name?: string;
+    revenue?: number;
+    sold?: number;
+  }>;
+  breakdown?: {
+    paymentMethods?: Array<{
+      method?: string;
+      amount?: number;
+      percent?: number;
+    }>;
+    orderTypes?: Array<{
+      orderType?: string;
+      revenue?: number;
+      percent?: number;
+    }>;
+  };
 }

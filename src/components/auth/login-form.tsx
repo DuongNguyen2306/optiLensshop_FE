@@ -187,7 +187,7 @@ export default function LoginForm() {
       </div>
 
       <p className="text-center text-sm text-slate-600">
-        Bạn chưa có tài khoản Anna?{" "}
+        Bạn chưa có tài khoản MYLENS?{" "}
         <Link to="/register" className="font-semibold text-[#2bb6a3] hover:underline">
           Đăng ký ngay
         </Link>

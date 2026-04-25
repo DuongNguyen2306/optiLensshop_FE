@@ -103,11 +103,15 @@ export async function fetchMyOrders(params: {
   page?: number;
   limit?: number;
   status?: string;
+  order_type?: string;
 }): Promise<CustomerOrdersListResponse> {
-  const { page = 1, limit = 10, status } = params;
+  const { page = 1, limit = 10, status, order_type } = params;
   const query: Record<string, string | number> = { page, limit };
   if (status && status.trim()) {
     query.status = status.trim();
+  }
+  if (order_type && order_type.trim()) {
+    query.order_type = order_type.trim();
   }
   const { data } = await axios.get<unknown>("/orders", { params: query });
   return normalizeOrdersResponse(data);
@@ -249,6 +253,17 @@ export async function fetchMyOrderDetail(orderId: string): Promise<Record<string
   return { order: null };
 }
 
+export async function updateOrderShippingInfo(
+  orderId: string,
+  payload: { shipping_carrier: string; tracking_code: string }
+): Promise<{ message?: string; order?: Record<string, unknown> }> {
+  const { data } = await axios.patch<unknown>(
+    `/orders/${encodeURIComponent(orderId)}/shipping-info`,
+    payload
+  );
+  return data as { message?: string; order?: Record<string, unknown> };
+}
+
 export async function cancelMyOrder(orderId: string): Promise<Record<string, unknown>> {
   const { data } = await axios.put<unknown>(`/orders/${encodeURIComponent(orderId)}/cancel`);
   if (data && typeof data === "object") {
@@ -258,7 +273,16 @@ export async function cancelMyOrder(orderId: string): Promise<Record<string, unk
 }
 
 export async function fetchAllOrders(params?: InternalOrdersQuery): Promise<Record<string, unknown>> {
-  const { data } = await axios.get<unknown>("/orders/all", { params });
+  const query: Record<string, string | number> = {};
+  if (params) {
+    if (typeof params.page === "number") query.page = params.page;
+    if (typeof params.limit === "number") query.limit = params.limit;
+    if (params.status?.trim()) query.status = params.status.trim();
+    if (params.payment_method?.trim()) query.payment_method = params.payment_method.trim();
+    if (params.payment_status?.trim()) query.payment_status = params.payment_status.trim();
+    if (params.order_type?.trim()) query.order_type = params.order_type.trim();
+  }
+  const { data } = await axios.get<unknown>("/orders/all", { params: query });
   if (data && typeof data === "object") {
     return data as Record<string, unknown>;
   }
@@ -290,6 +314,15 @@ export async function confirmOrder(
   return {};
 }
 
+/** Customer xác nhận đã nhận hàng: delivered -> completed */
+export async function confirmReceivedOrder(orderId: string): Promise<Record<string, unknown>> {
+  const { data } = await axios.put<unknown>(`/orders/${encodeURIComponent(orderId)}/confirm-received`);
+  if (data && typeof data === "object") {
+    return data as Record<string, unknown>;
+  }
+  return {};
+}
+
 export async function updateOrderStatus(
   orderId: string,
   payload: {
@@ -298,7 +331,7 @@ export async function updateOrderStatus(
   }
 ): Promise<Record<string, unknown>> {
   try {
-    const { data } = await axios.patch<unknown>(`/api/orders/${encodeURIComponent(orderId)}/status`, payload);
+    const { data } = await axios.put<unknown>(`/api/orders/${encodeURIComponent(orderId)}/status`, payload);
     if (data && typeof data === "object") {
       return data as Record<string, unknown>;
     }

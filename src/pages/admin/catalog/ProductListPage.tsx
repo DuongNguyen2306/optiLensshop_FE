@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
@@ -8,6 +8,7 @@ import {
   fetchProducts,
   toggleActiveProduct,
   updateProduct,
+  updateProductMultipart,
 } from "@/features/catalog/api";
 import type { Product } from "@/features/catalog/types";
 import { entityId } from "@/features/catalog/types";
@@ -15,6 +16,20 @@ import { getApiErrorMessage } from "@/lib/api-error";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+
+function readProductActive(p: Product): boolean {
+  const r = p as Record<string, unknown>;
+  return Boolean(r.is_active ?? r.active);
+}
+
+function readProductImages(p: Product): string[] {
+  const r = p as Record<string, unknown>;
+  const raw = r.images;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.filter((x): x is string => typeof x === "string" && x.trim().length > 0);
+}
 
 export default function ProductListPage() {
   const [list, setList] = useState<Product[]>([]);
@@ -80,7 +95,7 @@ export default function ProductListPage() {
       toast.error("Thiếu product ID.");
       return;
     }
-    const nextActive = !Boolean((product as Record<string, unknown>).active);
+    const nextActive = !readProductActive(product);
     try {
       setTogglingId(id);
       await toggleActiveProduct(id, nextActive);
@@ -144,7 +159,7 @@ export default function ProductListPage() {
                     <td className="px-4 py-3 font-medium">{p.name ?? "—"}</td>
                     <td className="px-4 py-3 text-slate-600">{p.slug ?? "—"}</td>
                     <td className="px-4 py-3">{String(p.type ?? "—")}</td>
-                    <td className="px-4 py-3">{Boolean((p as Record<string, unknown>).active) ? "Hiện" : "Ẩn"}</td>
+                    <td className="px-4 py-3">{readProductActive(p) ? "Hiện" : "Ẩn"}</td>
                     <td className="px-4 py-3 text-right">
                       {id ? (
                         <div className="inline-flex items-center gap-2">
@@ -195,14 +210,28 @@ export default function ProductListPage() {
         <ProductEditModal
           product={editProduct}
           onClose={() => setEditProduct(null)}
-          onSaved={async (payload) => {
+          onSaved={async ({ jsonPatch, imageFiles }) => {
             const id = entityId(editProduct);
             if (!id) {
               toast.error("Thiếu product ID.");
               return;
             }
             try {
-              await updateProduct(id, payload);
+              if (imageFiles.length > 0) {
+                await updateProductMultipart(id, {
+                  images: imageFiles,
+                  name: jsonPatch.name,
+                  type: jsonPatch.type,
+                  category: jsonPatch.category,
+                  brand: jsonPatch.brand,
+                  model: jsonPatch.model,
+                  material: jsonPatch.material,
+                  description: jsonPatch.description,
+                  gender: jsonPatch.gender,
+                });
+              } else {
+                await updateProduct(id, jsonPatch);
+              }
               toast.success("Cập nhật sản phẩm thành công.");
               setEditProduct(null);
               await load();
@@ -229,6 +258,17 @@ export default function ProductListPage() {
   );
 }
 
+type ProductEditJsonPatch = Partial<{
+  name: string;
+  type: "frame" | "lens" | "accessory";
+  category: string;
+  brand: string;
+  model: string;
+  material: string;
+  description: string;
+  gender: string;
+}>;
+
 function ProductEditModal({
   product,
   onClose,
@@ -236,18 +276,9 @@ function ProductEditModal({
 }: {
   product: Product;
   onClose: () => void;
-  onSaved: (
-    payload: Partial<{
-      name: string;
-      type: "frame" | "lens" | "accessory";
-      category: string;
-      brand: string;
-      model: string;
-      material: string;
-      description: string;
-    }>
-  ) => void;
+  onSaved: (args: { jsonPatch: ProductEditJsonPatch; imageFiles: File[] }) => void | Promise<void>;
 }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(String(product.name ?? ""));
   const [type, setType] = useState(String(product.type ?? ""));
   const [category, setCategory] = useState(String((product as Record<string, unknown>).category ?? ""));
@@ -255,6 +286,9 @@ function ProductEditModal({
   const [model, setModel] = useState(String((product as Record<string, unknown>).model ?? ""));
   const [material, setMaterial] = useState(String((product as Record<string, unknown>).material ?? ""));
   const [description, setDescription] = useState(String((product as Record<string, unknown>).description ?? ""));
+  const [gender, setGender] = useState(String((product as Record<string, unknown>).gender ?? ""));
+  const [newImageFiles, setNewImageFiles] = useState<File[]>([]);
+  const [newImagePreviews, setNewImagePreviews] = useState<string[]>([]);
 
   useEffect(() => {
     setName(String(product.name ?? ""));
@@ -264,7 +298,30 @@ function ProductEditModal({
     setModel(String((product as Record<string, unknown>).model ?? ""));
     setMaterial(String((product as Record<string, unknown>).material ?? ""));
     setDescription(String((product as Record<string, unknown>).description ?? ""));
+    setGender(String((product as Record<string, unknown>).gender ?? ""));
+    setNewImageFiles([]);
   }, [product]);
+
+  useEffect(() => {
+    const urls = newImageFiles.map((f) => URL.createObjectURL(f));
+    setNewImagePreviews(urls);
+    return () => {
+      urls.forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, [newImageFiles]);
+
+  const existingImageUrls = readProductImages(product);
+
+  const buildJsonPatch = (): ProductEditJsonPatch => ({
+    name: name.trim() || undefined,
+    type: (type.trim() || undefined) as "frame" | "lens" | "accessory" | undefined,
+    category: category.trim() || undefined,
+    brand: brand.trim() || undefined,
+    model: model.trim() || undefined,
+    material: material.trim() || undefined,
+    description: description.trim() || undefined,
+    gender: gender.trim() || undefined,
+  });
 
   return (
     <ManagementModal
@@ -280,17 +337,7 @@ function ProductEditModal({
           <Button
             type="button"
             className="bg-[#2bb6a3]"
-            onClick={() =>
-              onSaved({
-                name: name.trim() || undefined,
-                type: (type.trim() || undefined) as "frame" | "lens" | "accessory" | undefined,
-                category: category.trim() || undefined,
-                brand: brand.trim() || undefined,
-                model: model.trim() || undefined,
-                material: material.trim() || undefined,
-                description: description.trim() || undefined,
-              })
-            }
+            onClick={() => void onSaved({ jsonPatch: buildJsonPatch(), imageFiles: newImageFiles })}
           >
             Lưu
           </Button>
@@ -316,6 +363,19 @@ function ProductEditModal({
           </select>
         </div>
         <div className="space-y-1">
+          <Label>Giới tính (gender)</Label>
+          <select
+            className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+            value={gender}
+            onChange={(e) => setGender(e.target.value)}
+          >
+            <option value="">—</option>
+            <option value="unisex">unisex</option>
+            <option value="male">male</option>
+            <option value="female">female</option>
+          </select>
+        </div>
+        <div className="space-y-1">
           <Label>Category ID</Label>
           <Input value={category} onChange={(e) => setCategory(e.target.value)} />
         </div>
@@ -338,6 +398,74 @@ function ProductEditModal({
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
+        </div>
+        <div className="space-y-2">
+          <Label>Ảnh sản phẩm</Label>
+          {existingImageUrls.length > 0 ? (
+            <div>
+              <p className="mb-1 text-xs text-slate-500">Ảnh hiện tại trên server</p>
+              <div className="flex flex-wrap gap-2">
+                {existingImageUrls.map((url) => (
+                  <div
+                    key={url}
+                    className="h-16 w-16 overflow-hidden rounded border border-slate-200 bg-slate-50"
+                  >
+                    <img src={url} alt="" className="h-full w-full object-contain" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500">Chưa có ảnh — chọn file bên dưới để thêm.</p>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                const list = e.target.files ? Array.from(e.target.files) : [];
+                if (list.length) {
+                  setNewImageFiles((prev) => [...prev, ...list]);
+                }
+                e.target.value = "";
+              }}
+            />
+            <Button type="button" variant="outline" className="h-9 px-3 py-1.5 text-xs" onClick={() => fileInputRef.current?.click()}>
+              Chọn ảnh từ máy
+            </Button>
+            {newImageFiles.length > 0 ? (
+              <Button type="button" variant="ghost" className="h-9 px-3 py-1.5 text-xs text-slate-600" onClick={() => setNewImageFiles([])}>
+                Bỏ ảnh mới ({newImageFiles.length})
+              </Button>
+            ) : null}
+          </div>
+          {newImageFiles.length > 0 ? (
+            <div>
+              <p className="mb-1 text-xs text-slate-500">Ảnh mới (sẽ gửi lên khi Lưu — thay bộ ảnh hiện tại)</p>
+              <div className="flex flex-wrap gap-2">
+                {newImageFiles.map((file, i) => (
+                  <div key={`${file.name}-${i}`} className="relative h-16 w-16">
+                    <div className="h-full w-full overflow-hidden rounded border border-[#2bb6a3]/40 bg-slate-50">
+                      {newImagePreviews[i] ? (
+                        <img src={newImagePreviews[i]} alt="" className="h-full w-full object-contain" />
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-slate-800 text-[10px] text-white hover:bg-slate-900"
+                      title="Xóa"
+                      onClick={() => setNewImageFiles((prev) => prev.filter((_, j) => j !== i))}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </ManagementModal>

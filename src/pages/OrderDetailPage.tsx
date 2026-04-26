@@ -311,6 +311,11 @@ export default function OrderDetailPage() {
   const handleReorder = () => {
     navigate("/products");
   };
+  const confirmAndCancelOrder = () => {
+    if (!oid || cancelMutation.isPending) return;
+    if (!window.confirm("Bạn có chắc muốn hủy đơn hàng này không?")) return;
+    cancelMutation.mutate(oid);
+  };
 
   if (detailQuery.isPending) {
     return (
@@ -349,7 +354,7 @@ export default function OrderDetailPage() {
           <div className="flex flex-wrap gap-2">
             {canCancel && oid ? (
               <Button type="button" variant="outline" className="border-red-200 text-red-600 hover:bg-red-50"
-                disabled={cancelMutation.isPending} onClick={() => cancelMutation.mutate(oid)}>
+                disabled={cancelMutation.isPending} onClick={confirmAndCancelOrder}>
                 {cancelMutation.isPending ? "Đang hủy…" : "Hủy đơn"}
               </Button>
             ) : null}

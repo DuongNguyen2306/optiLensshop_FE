@@ -51,6 +51,11 @@ export interface CheckoutItemPayload {
 
 export interface CheckoutPayload {
   shipping_address: string | Record<string, unknown>;
+  receiver_name?: string;
+  recipient_name?: string;
+  full_name?: string;
+  customer_name?: string;
+  name?: string;
   phone?: string;
   payment_method: PaymentMethod;
   shipping_method: ShippingMethod;

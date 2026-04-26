@@ -179,6 +179,10 @@ export default function OrdersHistoryPage() {
     },
     onError: (e) => toast.error(getApiErrorMessage(e, "Không thể hủy đơn hàng.")),
   });
+  const confirmAndCancelOrder = (orderId: string) => {
+    if (!window.confirm("Bạn có chắc muốn hủy đơn hàng này không?")) return;
+    cancelMutation.mutate(orderId);
+  };
 
   const lastErrorRef = useRef<string | null>(null);
 
@@ -394,7 +398,7 @@ export default function OrdersHistoryPage() {
                               <button
                                 type="button"
                                 disabled={cancelMutation.isPending}
-                                onClick={() => cancelMutation.mutate(oid)}
+                                onClick={() => confirmAndCancelOrder(oid)}
                                 className="inline-flex items-center gap-1 rounded-full border border-red-200 px-3 py-1 text-xs font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-60"
                               >
                                 <X className="h-3.5 w-3.5" />
@@ -417,7 +421,7 @@ export default function OrdersHistoryPage() {
                   key={order._id ?? order.id ?? idx}
                   order={order}
                   cancelling={cancelMutation.isPending}
-                  onCancel={(id) => cancelMutation.mutate(id)}
+                  onCancel={confirmAndCancelOrder}
                 />
               ))}
             </div>

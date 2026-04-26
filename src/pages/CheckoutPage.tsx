@@ -6,7 +6,7 @@ import type { Province, District, Ward } from "sub-vn";
 import { getCart } from "@/services/shop.service";
 import { postCheckout } from "@/services/order.service";
 import { createMomoPayment, createVnpayPayment } from "@/services/payment.service";
-import { getMyAddresses } from "@/services/users.service";
+import { getMyAddresses, getMyProfile } from "@/services/users.service";
 import { getApiErrorMessage } from "@/lib/api-error";
 import type { PaymentMethod, ShippingMethod } from "@/types/shop";
 import type { UserAddress } from "@/types/user-profile";
@@ -71,6 +71,30 @@ function readProfilePhone(userLike: unknown): string {
   return "";
 }
 
+function readProfileFullName(userLike: unknown): string {
+  if (!userLike || typeof userLike !== "object") return "";
+  const u = userLike as Record<string, unknown>;
+  if (typeof u.full_name === "string" && u.full_name.trim()) return u.full_name.trim();
+  const first = typeof u.first_name === "string" ? u.first_name.trim() : "";
+  const last = typeof u.last_name === "string" ? u.last_name.trim() : "";
+  const merged = [first, last].filter(Boolean).join(" ").trim();
+  if (merged) return merged;
+  const profile = u.profile;
+  if (profile && typeof profile === "object") {
+    const p = profile as Record<string, unknown>;
+    if (typeof p.full_name === "string" && p.full_name.trim()) return p.full_name.trim();
+    const pf = typeof p.first_name === "string" ? p.first_name.trim() : "";
+    const pl = typeof p.last_name === "string" ? p.last_name.trim() : "";
+    const mergedProfile = [pf, pl].filter(Boolean).join(" ").trim();
+    if (mergedProfile) return mergedProfile;
+  }
+  if (typeof u.email === "string" && u.email.includes("@")) {
+    const alias = u.email.split("@")[0]?.trim();
+    if (alias) return alias;
+  }
+  return "";
+}
+
 export default function CheckoutPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -85,7 +109,12 @@ export default function CheckoutPage() {
     queryKey: ["users", "my-addresses"],
     queryFn: () => getMyAddresses(),
   });
+  const profileQuery = useQuery({
+    queryKey: ["users", "my-profile"],
+    queryFn: () => getMyProfile(),
+  });
   const rows = cartItemsArrayFromResponse(cartQuery.data);
+  const addresses = addressesQuery.data ?? [];
 
   const selectedLineKeySet = useMemo(() => {
     if (!linesQueryValue?.trim()) {
@@ -196,6 +225,12 @@ export default function CheckoutPage() {
   const customAddress = [addressLine.trim(), wardName, districtName, provinceName].filter(Boolean).join(", ");
   const usingCustomAddress = showAddressEditor || !selectedAddress;
   const fullAddress = usingCustomAddress ? customAddress : selectedAddress;
+  const selectedAddressObj = useMemo(() => {
+    const selected = addresses.find((addr) => fullAddressFromUserAddress(addr) === selectedAddress);
+    if (selected) return selected;
+    const preferred = addresses.find((addr) => addr.is_default) ?? addresses[0];
+    return preferred ?? null;
+  }, [addresses, selectedAddress]);
   const buildCheckoutItemsFromRows = (sourceRows: unknown[]) =>
     sourceRows
       .map((item) => {
@@ -277,8 +312,17 @@ export default function CheckoutPage() {
         await queryClient.invalidateQueries({ queryKey: ["cart"] });
         return;
       }
+      const receiverName =
+        (typeof selectedAddressObj?.receiver_name === "string" ? selectedAddressObj.receiver_name.trim() : "") ||
+        readProfileFullName(profileQuery.data) ||
+        readProfileFullName(authUser);
       const res = await postCheckout({
         shipping_address: fullAddress,
+        receiver_name: receiverName || undefined,
+        recipient_name: receiverName || undefined,
+        full_name: receiverName || undefined,
+        customer_name: receiverName || undefined,
+        name: receiverName || undefined,
         phone: phone.trim(),
         payment_method: paymentMethod,
         shipping_method: shippingMethod,

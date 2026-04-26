@@ -38,21 +38,23 @@ function sectionLinks(role: string | undefined): { title: string; links: LinkIte
   //   });
   // }
 
+  if (r === "operations" || r === "manager" || r === "admin") {
+    sections.push({
+      title: "Kho",
+      links: [
+        { to: "/admin/inventory/receipts", label: "Phiếu nhập kho" },
+        { to: "/admin/inventory/ledger", label: "Sổ kho (Ledger)" },
+      ],
+    });
+  }
+
   if (r === "manager" || r === "admin") {
     sections.push({
       title: "Thống kê",
       links: [
         { to: "/admin/dashboard", label: "Dashboard nội bộ" },
         { to: "/admin/catalog/statistics", label: "Báo cáo KPI" },
-        ...(r === "admin" ? [{ to: "/admin/analytics/finance", label: "Financial Analytics" }] : []),
-      ],
-    });
-    sections.push({
-      title: "Kho",
-      links: [
-        // Tạm ẩn chức năng phiếu nhập kho cũ theo yêu cầu.
-        // { to: "/admin/inventory/receipts", label: "Phiếu nhập kho" },
-        { to: "/admin/inventory/ledger", label: "Sổ kho (Ledger)" },
+        { to: "/admin/analytics/finance", label: "Tài chính & P&L" },
       ],
     });
   }

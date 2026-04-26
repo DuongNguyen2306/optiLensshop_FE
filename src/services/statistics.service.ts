@@ -1,8 +1,6 @@
 import axios from "@/lib/axios";
 import type {
   DateRangeQuery,
-  FinanceAnalyticsQuery,
-  FinanceAnalyticsResponse,
   StatisticsAdminResponse,
   StatisticsFunnelResponse,
   StatisticsInventoryAlertsResponse,
@@ -87,12 +85,4 @@ export async function getStatisticsFunnel(params?: DateRangeQuery): Promise<Stat
   return data;
 }
 
-export async function getFinanceAnalytics(params?: FinanceAnalyticsQuery): Promise<FinanceAnalyticsResponse> {
-  const query: FinanceAnalyticsQuery = {};
-  if (params?.startDate?.trim()) query.startDate = params.startDate.trim();
-  if (params?.endDate?.trim()) query.endDate = params.endDate.trim();
-  const { data } = await axios.get<FinanceAnalyticsResponse>("/api/admin/analytics/finance", {
-    params: Object.keys(query).length > 0 ? query : undefined,
-  });
-  return data;
-}
+export { getFinanceAnalytics } from "@/services/finance.service";

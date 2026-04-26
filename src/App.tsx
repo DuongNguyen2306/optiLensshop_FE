@@ -20,7 +20,9 @@ import AdminReturnDetailPage from "@/pages/admin/management/AdminReturnDetailPag
 import ManagersManagementPage from "@/pages/admin/management/ManagersManagementPage";
 import StaffManagementPage from "@/pages/admin/management/StaffManagementPage";
 import MyReturnsPage from "@/pages/MyReturnsPage";
+import InventoryReceiptsPage from "@/pages/admin/inventory/InventoryReceiptsPage";
 import InventoryLedgerPage from "@/pages/admin/inventory/InventoryLedgerPage";
+import InboundDetailPage from "@/pages/admin/inventory/InboundDetailPage";
 import ComboDetailPage from "@/pages/ComboDetailPage";
 import CombosPage from "@/pages/CombosPage";
 import ForbiddenPage from "@/pages/ForbiddenPage";
@@ -98,6 +100,12 @@ export default function App() {
               <Route path="returns" element={<AdminReturnsPage />} />
               <Route path="returns/:id" element={<AdminReturnDetailPage />} />
 
+              <Route element={<RequireRole allowedRoles={["operations", "manager", "admin"]} message="Chỉ operations/manager/admin được truy cập." />}>
+                <Route path="inventory/receipts" element={<InventoryReceiptsPage />} />
+                <Route path="inventory/receipts/:id" element={<InboundDetailPage />} />
+                <Route path="inventory/ledger" element={<InventoryLedgerPage />} />
+              </Route>
+
               <Route element={<RequireRole allowedRoles={["manager", "admin"]} message="Chỉ manager/admin được truy cập." />}>
                 <Route path="catalog/products" element={<ProductListPage />} />
                 <Route path="catalog/products/new" element={<ProductCreatePage />} />
@@ -107,17 +115,14 @@ export default function App() {
                 <Route path="catalog/brands" element={<BrandsPage />} />
                 <Route path="catalog/models" element={<ModelsPage />} />
                 <Route path="catalog/statistics" element={<StatisticsDashboardPage />} />
-                {/* Tạm ẩn chức năng phiếu nhập kho cũ theo yêu cầu */}
-                {/* <Route path="inventory/receipts" element={<InventoryReceiptsPage />} /> */}
-                <Route path="inventory/ledger" element={<InventoryLedgerPage />} />
               </Route>
 
               <Route element={<RequireRole allowedRoles={["manager", "admin"]} message="Chỉ manager/admin được truy cập." />}>
                 <Route path="management/staff" element={<StaffManagementPage />} />
+                <Route path="analytics/finance" element={<FinanceAnalyticsPage />} />
               </Route>
 
               <Route element={<RequireRole allowedRoles={["admin"]} message="Chỉ admin được truy cập." />}>
-                <Route path="analytics/finance" element={<FinanceAnalyticsPage />} />
                 <Route path="management/managers" element={<ManagersManagementPage />} />
               </Route>
             </Route>

@@ -39,6 +39,23 @@ export interface ReturnHistoryEntry {
   note?: string;
 }
 
+export interface RestockLogItem {
+  variant_id?: string;
+  quantity?: number;
+  restock?: boolean;
+  reason?: string;
+  [key: string]: unknown;
+}
+
+export interface RestockInboundReceiptSummary {
+  _id?: string;
+  id?: string;
+  inbound_code?: string;
+  status?: "COMPLETED" | string;
+  type?: "RETURN_RESTOCK" | string;
+  [key: string]: unknown;
+}
+
 export interface ReturnRequest {
   _id?: string;
   id?: string;
@@ -57,7 +74,8 @@ export interface ReturnRequest {
   refund_amount?: number;
   is_restocked?: boolean;
   history_log?: ReturnHistoryEntry[];
-  restockLog?: unknown[];
+  restockLog?: RestockLogItem[];
+  restockInboundReceipt?: RestockInboundReceiptSummary | null;
   createdAt?: string;
   updatedAt?: string;
   [key: string]: unknown;
@@ -75,4 +93,12 @@ export interface AdminReturnsQuery {
   condition?: string;
   page?: number;
   pageSize?: number;
+}
+
+export interface CompleteReturnResponse {
+  message?: string;
+  returnRequest?: ReturnRequest;
+  restockLog?: RestockLogItem[];
+  finalOrderStatus?: "returned" | "refunded" | string;
+  restockInboundReceipt?: RestockInboundReceiptSummary | null;
 }

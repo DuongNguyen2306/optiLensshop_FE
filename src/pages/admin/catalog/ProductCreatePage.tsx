@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { createProductMultipart, fetchBrands, fetchCategories, fetchModels } from "@/features/catalog/api";
 import type { ProductType } from "@/features/catalog/types";
 import { entityId } from "@/features/catalog/types";
-import { getApiErrorMessage } from "@/lib/api-error";
+import { parseApiError } from "@/utils/parseApiError";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,8 +37,12 @@ interface VariantRow {
   id: string;
   sku: string;
   price: string;
-  stock_quantity: string;
-  attributesJson: string;
+  color: string;
+  size: string;
+  bridge_fit: string;
+  diameter: string;
+  base_curve: string;
+  power: string;
 }
 
 function newRow(): VariantRow {
@@ -46,8 +50,12 @@ function newRow(): VariantRow {
     id: crypto.randomUUID(),
     sku: "",
     price: "",
-    stock_quantity: "0",
-    attributesJson: "{}",
+    color: "",
+    size: "",
+    bridge_fit: "",
+    diameter: "",
+    base_curve: "",
+    power: "",
   };
 }
 
@@ -144,19 +152,6 @@ export default function ProductCreatePage() {
     try {
       setSubmitting(true);
       const variantsPayload = rows.map((row, idx) => {
-        let attributes: Record<string, unknown> = {};
-        try {
-          const raw = row.attributesJson.trim();
-          attributes = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-          if (typeof attributes !== "object" || attributes === null || Array.isArray(attributes)) {
-            throw new Error("attributes phải là object JSON.");
-          }
-        } catch (e) {
-          if (e instanceof Error && e.message.includes("attributes")) {
-            throw e;
-          }
-          throw new Error(`Attributes JSON không hợp lệ ở biến thể #${idx + 1}`);
-        }
         const price = Number(row.price);
         if (Number.isNaN(price) || row.price.trim() === "") {
           throw new Error(`Biến thể #${idx + 1}: price bắt buộc và phải là số.`);
@@ -166,8 +161,12 @@ export default function ProductCreatePage() {
         }
         const item: Record<string, unknown> = {
           price,
-          stock_quantity: Number(row.stock_quantity) || 0,
-          attributes,
+          color: row.color.trim() || undefined,
+          size: row.size.trim() || undefined,
+          bridge_fit: row.bridge_fit.trim() || undefined,
+          diameter: row.diameter.trim() || undefined,
+          base_curve: row.base_curve.trim() || undefined,
+          power: row.power.trim() || undefined,
         };
         const sku = row.sku.trim();
         if (sku) {
@@ -190,11 +189,11 @@ export default function ProductCreatePage() {
       navigate("/admin/catalog/products", { replace: true });
     } catch (err) {
       if (isAxiosError(err)) {
-        toast.error(getApiErrorMessage(err));
+        toast.error(parseApiError(err));
       } else if (err instanceof Error) {
         toast.error(err.message);
       } else {
-        toast.error(getApiErrorMessage(err));
+        toast.error(parseApiError(err));
       }
     } finally {
       setSubmitting(false);
@@ -212,7 +211,7 @@ export default function ProductCreatePage() {
   const loadingLists = categoriesQuery.isPending || brandsQuery.isPending || modelsQuery.isPending;
   const listError =
     categoriesQuery.isError || brandsQuery.isError || modelsQuery.isError
-      ? getApiErrorMessage(
+      ? parseApiError(
           categoriesQuery.error ?? brandsQuery.error ?? modelsQuery.error,
           "Không tải được danh mục / thương hiệu / model."
         )
@@ -378,7 +377,8 @@ export default function ProductCreatePage() {
           </div>
           <p className="mb-3 text-xs leading-relaxed text-slate-500">
             Gửi <code className="rounded bg-slate-100 px-1">formData.append(&quot;variants&quot;, JSON.stringify([...]))</code>.
-            Mỗi phần tử: <strong>price</strong> bắt buộc (&gt; 0), <strong>stock_quantity</strong>, <strong>attributes</strong> (object).{" "}
+            Mỗi phần tử: <strong>price</strong> bắt buộc (&gt; 0), dùng trực tiếp field{" "}
+            <strong>color/size/bridge_fit/diameter/base_curve/power</strong>.{" "}
             <strong>sku</strong> tùy chọn — để trống BE tự sinh; nếu nhập thì không trùng giữa các dòng. Không gửi{" "}
             <code className="rounded bg-slate-100 px-1">sku</code> cấp product; slug product BE sinh từ <code className="rounded bg-slate-100 px-1">name</code>.
           </p>
@@ -412,21 +412,31 @@ export default function ProductCreatePage() {
                       placeholder="VD: 890000"
                     />
                   </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <Label>color</Label>
+                    <Input value={row.color} onChange={(e) => updateRow(row.id, { color: e.target.value })} />
+                  </div>
                   <div className="space-y-1">
-                    <Label>stock_quantity</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={row.stock_quantity}
-                      onChange={(e) => updateRow(row.id, { stock_quantity: e.target.value })}
-                    />
+                    <Label>size</Label>
+                    <Input value={row.size} onChange={(e) => updateRow(row.id, { size: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>bridge_fit</Label>
+                    <Input value={row.bridge_fit} onChange={(e) => updateRow(row.id, { bridge_fit: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>diameter</Label>
+                    <Input value={row.diameter} onChange={(e) => updateRow(row.id, { diameter: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>base_curve</Label>
+                    <Input value={row.base_curve} onChange={(e) => updateRow(row.id, { base_curve: e.target.value })} />
                   </div>
                   <div className="space-y-1 sm:col-span-2">
-                    <Label>attributes (JSON object)</Label>
+                    <Label>power</Label>
                     <Input
-                      value={row.attributesJson}
-                      onChange={(e) => updateRow(row.id, { attributesJson: e.target.value })}
-                      className="font-mono text-xs"
+                      value={row.power}
+                      onChange={(e) => updateRow(row.id, { power: e.target.value })}
                     />
                   </div>
                 </div>

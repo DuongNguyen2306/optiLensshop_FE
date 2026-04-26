@@ -70,7 +70,6 @@ const PRODUCT_TYPE_LABEL: Record<string, string> = {
   accessory: "Phụ kiện",
 };
 
-const COLOR_FALLBACK = ["#2bb6a3", "#111827", "#b8b5c6", "#a3a7b5", "#8b7e6f"];
 
 function imageUrlFromUnknown(value: unknown): string {
   if (typeof value === "string" && value.trim()) {
@@ -110,50 +109,6 @@ function collectImagesFromRecord(rec: Record<string, unknown>): string[] {
     }
   }
   return images;
-}
-
-function extractVariantColor(variant: ShopVariant): string | null {
-  const rec = variant as Record<string, unknown>;
-  const attrs = rec.attributes;
-  if (!attrs || typeof attrs !== "object" || Array.isArray(attrs)) {
-    return null;
-  }
-  const attrRec = attrs as Record<string, unknown>;
-  const raw = attrRec.color ?? attrRec.colour ?? attrRec.mau ?? attrRec.màu;
-  if (typeof raw !== "string" || !raw.trim()) {
-    return null;
-  }
-  const token = raw.trim().toLowerCase();
-  if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(token)) {
-    return token;
-  }
-  const map: Record<string, string> = {
-    den: "#111827",
-    "đen": "#111827",
-    black: "#111827",
-    trang: "#f8fafc",
-    "trắng": "#f8fafc",
-    white: "#f8fafc",
-    xam: "#9ca3af",
-    "xám": "#9ca3af",
-    gray: "#9ca3af",
-    grey: "#9ca3af",
-    xanh: "#2bb6a3",
-    blue: "#2bb6a3",
-    nau: "#8b5e3c",
-    "nâu": "#8b5e3c",
-    brown: "#8b5e3c",
-    hong: "#ec4899",
-    "hồng": "#ec4899",
-    pink: "#ec4899",
-    bac: "#c4c9d4",
-    "bạc": "#c4c9d4",
-    silver: "#c4c9d4",
-    vang: "#d4af37",
-    "vàng": "#d4af37",
-    gold: "#d4af37",
-  };
-  return map[token] ?? null;
 }
 
 function BenefitIcon({ type }: { type: "shield" | "pin" | "refresh" | "care" }) {
@@ -226,6 +181,8 @@ export default function ProductDetailPage() {
 
   const [selectedVariantId, setSelectedVariantId] = useState("");
   const [selectedImage, setSelectedImage] = useState("");
+  const [hasUserPickedVariant, setHasUserPickedVariant] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   const supportProductsQuery = useQuery({
     queryKey: ["products", "support-lenses", slug],
@@ -246,6 +203,7 @@ export default function ProductDetailPage() {
   useEffect(() => {
     if (variants.length === 0) {
       setSelectedVariantId("");
+      setHasUserPickedVariant(false);
       return;
     }
     const first = variantMongoId(variants[0]);
@@ -276,19 +234,41 @@ export default function ProductDetailPage() {
     const dedup = Array.from(new Set(list.filter(Boolean)));
     return dedup.slice(0, 6);
   }, [product, variants, heroImage]);
-
-  useEffect(() => {
-    if (productImages.length === 0) {
-      setSelectedImage("");
-      return;
-    }
-    setSelectedImage((prev) => (prev && productImages.includes(prev) ? prev : productImages[0]));
-  }, [productImages]);
-
   const selectedVariant = useMemo(
     () => variants.find((v) => variantMongoId(v) === selectedVariantId),
     [variants, selectedVariantId]
   );
+  const selectedVariantImages = useMemo(() => {
+    if (!selectedVariant) return [];
+    return collectImagesFromRecord(selectedVariant as Record<string, unknown>);
+  }, [selectedVariant]);
+  const variantPrimaryImageMap = useMemo(() => {
+    const map = new Map<string, string>();
+    variants.forEach((variant) => {
+      const vid = variantMongoId(variant);
+      if (!vid) return;
+      const primary = collectImagesFromRecord(variant as Record<string, unknown>)[0];
+      if (primary) {
+        map.set(vid, primary);
+      }
+    });
+    return map;
+  }, [variants]);
+  const displayImages = useMemo(() => {
+    if (!hasUserPickedVariant || selectedVariantImages.length === 0) {
+      return productImages;
+    }
+    const merged = [...selectedVariantImages, ...productImages].filter(Boolean);
+    return Array.from(new Set(merged));
+  }, [hasUserPickedVariant, selectedVariantImages, productImages]);
+
+  useEffect(() => {
+    if (displayImages.length === 0) {
+      setSelectedImage("");
+      return;
+    }
+    setSelectedImage((prev) => (prev && displayImages.includes(prev) ? prev : displayImages[0]));
+  }, [displayImages]);
 
   const selectedStockType = selectedVariant ? variantStockType(selectedVariant) : "unknown";
   const selectedAvailableQty = selectedVariant ? variantAvailableQuantity(selectedVariant) : 0;
@@ -336,25 +316,8 @@ export default function ProductDetailPage() {
     if (pType && PRODUCT_TYPE_LABEL[pType]) {
       tags.push(PRODUCT_TYPE_LABEL[pType]);
     }
-    for (const key of ["category", "model", "brand"] as const) {
-      const value = rec[key];
-      if (typeof value === "string" && value.trim()) {
-        tags.push(value.trim());
-      }
-    }
-    return tags.slice(0, 3);
+    return tags.slice(0, 1);
   }, [product]);
-
-  const colorDots = useMemo(() => {
-    const palette: string[] = [];
-    variants.forEach((variant, index) => {
-      const color = extractVariantColor(variant) ?? COLOR_FALLBACK[index % COLOR_FALLBACK.length];
-      if (!palette.includes(color)) {
-        palette.push(color);
-      }
-    });
-    return palette.slice(0, 5);
-  }, [variants]);
 
   const stockLabel = (() => {
     if (!selectedVariant) {
@@ -511,13 +474,20 @@ export default function ProductDetailPage() {
                 <span className="text-slate-400">Chưa có ảnh</span>
               )}
             </div>
-            {productImages.length > 1 ? (
+            {displayImages.length > 1 ? (
               <div className="mt-3 flex flex-wrap gap-3">
-                {productImages.map((img) => (
+                {displayImages.map((img) => (
                   <button
                     key={img}
                     type="button"
-                    onClick={() => setSelectedImage(img)}
+                    onClick={() => {
+                      setSelectedImage(img);
+                      const matchedVariantId = Array.from(variantPrimaryImageMap.entries()).find(([, primary]) => primary === img)?.[0];
+                      if (matchedVariantId && matchedVariantId !== selectedVariantId) {
+                        setSelectedVariantId(matchedVariantId);
+                        setHasUserPickedVariant(true);
+                      }
+                    }}
                     className={`h-20 w-20 border bg-white p-1 transition ${
                       img === selectedImage ? "border-[#2bb6a3]" : "border-slate-200 hover:border-[#2bb6a3]/50"
                     }`}
@@ -543,16 +513,34 @@ export default function ProductDetailPage() {
               {String(product.name ?? "Sản phẩm")}
             </h1>
             <p className="mt-3 text-3xl font-bold text-slate-900">{formatPriceVnd(selectedPrice)}</p>
-            {colorDots.length > 0 ? (
-              <div className="mt-3 flex items-center gap-2">
-                {colorDots.map((color) => (
-                  <span
-                    key={color}
-                    className="h-3.5 w-3.5 rounded-full border border-slate-200"
-                    style={{ backgroundColor: color }}
-                    aria-hidden
-                  />
-                ))}
+            {selectedVariant ? (
+              <div className="mt-2 rounded-md border border-slate-200 bg-white/70 p-2 text-xs text-slate-700">
+                <p>
+                  SKU: <span className="font-semibold">{String((selectedVariant as Record<string, unknown>).sku ?? "—")}</span>
+                </p>
+                <p>
+                  Có thể bán: <span className="font-semibold">{selectedAvailableQty}</span>
+                </p>
+                <div className="mt-1 grid gap-0.5 sm:grid-cols-2">
+                  <p>
+                    color: <span className="font-medium">{String((selectedVariant as Record<string, unknown>).color ?? "—")}</span>
+                  </p>
+                  <p>
+                    size: <span className="font-medium">{String((selectedVariant as Record<string, unknown>).size ?? "—")}</span>
+                  </p>
+                  <p>
+                    bridge_fit: <span className="font-medium">{String((selectedVariant as Record<string, unknown>).bridge_fit ?? "—")}</span>
+                  </p>
+                  <p>
+                    diameter: <span className="font-medium">{String((selectedVariant as Record<string, unknown>).diameter ?? "—")}</span>
+                  </p>
+                  <p>
+                    base_curve: <span className="font-medium">{String((selectedVariant as Record<string, unknown>).base_curve ?? "—")}</span>
+                  </p>
+                  <p>
+                    power: <span className="font-medium">{String((selectedVariant as Record<string, unknown>).power ?? "—")}</span>
+                  </p>
+                </div>
               </div>
             ) : null}
 
@@ -561,13 +549,13 @@ export default function ProductDetailPage() {
                 <p className="text-sm text-amber-800">Hiện chưa có phiên bản để mua. Vui lòng quay lại sau.</p>
               ) : (
                 <div className="flex flex-wrap gap-3">
-                  {variants.map((v, idx) => {
+                {variants.map((v, idx) => {
                     const vid = variantMongoId(v);
                     if (!vid) {
                       return null;
                     }
                     const label = variantConsumerLabel(v, idx);
-                    const image = collectImagesFromRecord(v as Record<string, unknown>)[0];
+                  const image = variantPrimaryImageMap.get(vid) ?? "";
                     return (
                       <label
                         key={vid}
@@ -581,7 +569,14 @@ export default function ProductDetailPage() {
                           className="sr-only"
                           value={vid}
                           checked={selectedVariantId === vid}
-                          onChange={() => setSelectedVariantId(vid)}
+                          onChange={() => {
+                            setSelectedVariantId(vid);
+                            setHasUserPickedVariant(true);
+                            const nextImg = variantPrimaryImageMap.get(vid);
+                            if (nextImg) {
+                              setSelectedImage(nextImg);
+                            }
+                          }}
                         />
                         <span className="block h-20 w-24 overflow-hidden bg-slate-50">
                           {image ? (
@@ -733,13 +728,19 @@ export default function ProductDetailPage() {
             </div>
 
             <div className="border-b border-slate-200">
-              <button type="button" className="flex w-full items-center justify-between py-4 text-left">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between py-4 text-left"
+                onClick={() => setDetailOpen((v) => !v)}
+              >
                 <span className="text-[22px] font-bold text-slate-800">Thông tin chi tiết &amp; mô tả</span>
-                <span className="text-xl text-slate-500">+</span>
+                <span className="text-xl text-slate-500">{detailOpen ? "−" : "+"}</span>
               </button>
             </div>
-            {product.description ? (
+            {detailOpen && product.description ? (
               <p className="mt-3 max-w-xl text-sm leading-relaxed text-slate-600">{String(product.description)}</p>
+            ) : detailOpen ? (
+              <p className="mt-3 max-w-xl text-sm leading-relaxed text-slate-500">Sản phẩm chưa có mô tả chi tiết.</p>
             ) : null}
           </div>
         </div>

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { CheckCircle2, Clock, PackageCheck, RotateCcw, X, XCircle } from "lucide-react";
@@ -9,13 +9,20 @@ import { getApiErrorMessage } from "@/lib/api-error";
 import { normalizeRole } from "@/lib/role-routing";
 import {
   approveReturn,
+  completeReturn,
   fetchAdminReturnDetail,
   receiveReturn,
   refundReturn,
   rejectReturn,
 } from "@/services/returns.service";
 import { useAppSelector } from "@/store/hooks";
-import type { ConditionAtReceipt, ReturnStatus } from "@/types/returns";
+import type {
+  CompleteReturnResponse,
+  ConditionAtReceipt,
+  RestockInboundReceiptSummary,
+  RestockLogItem,
+  ReturnStatus,
+} from "@/types/returns";
 
 /* ─── constants ─── */
 const CONDITION_LABELS: Record<string, string> = {
@@ -84,6 +91,18 @@ function readMaybeString(v: unknown): string | null {
   if (typeof v !== "string") return null;
   const s = v.trim();
   return s ? s : null;
+}
+
+function parseRestockLog(value: unknown): RestockLogItem[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => (entry && typeof entry === "object" ? (entry as RestockLogItem) : null))
+    .filter((entry): entry is RestockLogItem => Boolean(entry));
+}
+
+function parseInboundReceiptSummary(value: unknown): RestockInboundReceiptSummary | null {
+  if (!value || typeof value !== "object") return null;
+  return value as RestockInboundReceiptSummary;
 }
 
 /* ─── Timeline ─── */
@@ -211,16 +230,27 @@ function RejectModal({ rid, onClose, onSuccess }: { rid: string; onClose: () => 
 }
 
 function RefundConfirm({ rid, condition, onClose, onSuccess }: {
-  rid: string; condition: string; onClose: () => void; onSuccess: () => void;
+  rid: string; condition: string; onClose: () => void; onSuccess: (result: CompleteReturnResponse) => void;
 }) {
   const willRestock = condition === "NEW";
   const mut = useMutation({
-    mutationFn: () => refundReturn(rid),
-    onSuccess: (r) => { toast.success(r.message ?? "Đã hoàn tiền thành công."); onSuccess(); onClose(); },
+    mutationFn: async () => {
+      try {
+        return await completeReturn(rid);
+      } catch {
+        return refundReturn(rid);
+      }
+    },
+    onSuccess: (r) => { toast.success(r.message ?? "Đã hoàn tiền và hoàn tất xử lý trả hàng."); onSuccess(r); onClose(); },
     onError: (e) => {
-      const raw = getApiErrorMessage(e, "");
-      const is403 = raw.includes("403") || raw.toLowerCase().includes("forbidden") || raw.toLowerCase().includes("permission");
-      toast.error(is403 ? "Chỉ quản lý / Admin được xác nhận hoàn tiền." : (raw || "Không thể hoàn tiền."));
+      const anyErr = e as { response?: { status?: number } };
+      const statusCode = anyErr?.response?.status;
+      const raw = getApiErrorMessage(e, "Không thể hoàn tất hoàn trả.");
+      if (statusCode === 401 || statusCode === 403) {
+        toast.error("Bạn không đủ quyền để hoàn tất hoàn trả.");
+        return;
+      }
+      toast.error(raw);
     },
   });
   return (
@@ -245,7 +275,7 @@ function RefundConfirm({ rid, condition, onClose, onSuccess }: {
         <div className="flex justify-end gap-2 border-t px-5 py-4">
           <Button type="button" variant="outline" onClick={onClose}>Hủy</Button>
           <Button type="button" className="bg-emerald-600 hover:bg-emerald-700" disabled={mut.isPending} onClick={() => mut.mutate()}>
-            {mut.isPending ? "Đang xử lý…" : "Xác nhận hoàn tiền"}
+            {mut.isPending ? "Đang xử lý…" : "Hoàn tiền & hoàn tất"}
           </Button>
         </div>
       </div>
@@ -258,6 +288,7 @@ const CAN_REJECT_STATUSES = new Set(["PENDING", "APPROVED", "INSPECTING", "RECEI
 
 export default function AdminReturnDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const role = useAppSelector((s) => normalizeRole(s.auth.user?.role) ?? "");
 
@@ -270,6 +301,7 @@ export default function AdminReturnDetailPage() {
   const [showInspect, setShowInspect] = useState(false);
   const [showReject,  setShowReject]  = useState(false);
   const [showRefund,  setShowRefund]  = useState(false);
+  const [completeResult, setCompleteResult] = useState<CompleteReturnResponse | null>(null);
 
   const query = useQuery({
     queryKey: ["admin", "returns", "detail", id],
@@ -283,10 +315,27 @@ export default function AdminReturnDetailPage() {
   const condition = String(req?.condition_at_receipt ?? "") as ConditionAtReceipt;
   const historyLog = Array.isArray(req?.history_log)
     ? (req.history_log as Array<Record<string, unknown>>) : [];
-  const restockLog = Array.isArray(req?.restockLog) ? req.restockLog : [];
+  const restockLogFromRequest = parseRestockLog(req?.restockLog);
+  const restockLogFromAction = parseRestockLog(completeResult?.restockLog);
+  const restockLog = restockLogFromAction.length > 0 ? restockLogFromAction : restockLogFromRequest;
+  const restockInboundReceiptFromAction = parseInboundReceiptSummary(completeResult?.restockInboundReceipt);
+  const restockInboundReceiptFromRequest = parseInboundReceiptSummary(req?.restockInboundReceipt);
+  const restockInboundReceipt = restockInboundReceiptFromAction ?? restockInboundReceiptFromRequest;
   const items = Array.isArray(req?.items) ? (req.items as Array<Record<string, unknown>>) : [];
   const rid = req ? getReturnId(req) : "";
   const tlIdx = STATUS_TIMELINE_IDX[status] ?? 0;
+  const timelineEntries = useMemo(() => {
+    const base = historyLog.map((entry) => ({ ...entry }));
+    if (restockInboundReceipt?._id || restockInboundReceipt?.id) {
+      base.push({
+        action: "INBOUND_CREATED_FROM_RETURN",
+        actor: "Hệ thống",
+        at: req?.updatedAt as string | undefined,
+        note: `Đã tạo phiếu nhập kho ${String(restockInboundReceipt.inbound_code ?? "")} từ hoàn trả`,
+      });
+    }
+    return base;
+  }, [historyLog, req?.updatedAt, restockInboundReceipt]);
 
   function refetch() {
     queryClient.invalidateQueries({ queryKey: ["admin", "returns", "detail", id] });
@@ -462,6 +511,76 @@ export default function AdminReturnDetailPage() {
                 </section>
               ) : null}
 
+              {(status === "REFUNDED" || status === "COMPLETED") ? (
+                <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Kết quả nhập lại kho</h2>
+                  {restockLog.length === 0 ? (
+                    <p className="text-sm text-slate-600">Không có dữ liệu restockLog.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[640px] text-sm">
+                        <thead className="border-b border-slate-100 bg-slate-50 text-xs uppercase text-slate-500">
+                          <tr>
+                            <th className="px-3 py-2 text-left">Variant</th>
+                            <th className="px-3 py-2 text-left">Số lượng</th>
+                            <th className="px-3 py-2 text-left">Kết quả</th>
+                            <th className="px-3 py-2 text-left">Lý do</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {restockLog.map((entry, idx) => {
+                            const variantId = String(entry.variant_id ?? "—");
+                            const quantity = Number(entry.quantity ?? 0);
+                            const isRestock = Boolean(entry.restock);
+                            return (
+                              <tr key={`${variantId}-${idx}`}>
+                                <td className="px-3 py-2 font-mono text-xs">{variantId}</td>
+                                <td className="px-3 py-2">{Number.isFinite(quantity) ? quantity : "—"}</td>
+                                <td className="px-3 py-2">
+                                  <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${isRestock ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>
+                                    {isRestock ? "Nhập lại kho" : "Không nhập kho"}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-slate-600">{String(entry.reason ?? "—")}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {restockInboundReceipt ? (
+                    <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Phiếu nhập kho tự động</p>
+                      <div className="mt-2 grid gap-1 text-sm text-indigo-900">
+                        <p>Mã phiếu: <strong>{String(restockInboundReceipt.inbound_code ?? "—")}</strong></p>
+                        <p>Loại: <strong>{String(restockInboundReceipt.type ?? "RETURN_RESTOCK")}</strong></p>
+                        <p>Trạng thái: <strong>{String(restockInboundReceipt.status ?? "COMPLETED")}</strong></p>
+                      </div>
+                      <Button
+                        type="button"
+                        className="mt-3 bg-indigo-600 text-white hover:bg-indigo-700"
+                        onClick={() => {
+                          const inboundId = String(restockInboundReceipt._id ?? restockInboundReceipt.id ?? "").trim();
+                          if (!inboundId) {
+                            toast.error("Không tìm thấy mã phiếu nhập để điều hướng.");
+                            return;
+                          }
+                          navigate(`/admin/inventory/receipts/${encodeURIComponent(inboundId)}`);
+                        }}
+                      >
+                        Xem phiếu nhập kho
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                      Không phát sinh phiếu nhập kho tự động.
+                    </p>
+                  )}
+                </section>
+              ) : null}
+
               {/* ── Thông tin yêu cầu ── */}
               <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                 <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Thông tin yêu cầu</h2>
@@ -587,35 +706,17 @@ export default function AdminReturnDetailPage() {
                 </section>
               ) : null}
 
-              {/* ── Kết quả nhập kho ── */}
-              {restockLog.length > 0 ? (
-                <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Kết quả nhập kho</h2>
-                  <div className="space-y-2 text-sm">
-                    {restockLog.map((entry, i) => {
-                      const e = entry as Record<string, unknown>;
-                      return (
-                        <div key={i} className={`rounded-lg px-3 py-2 ${e.restocked ? "bg-emerald-50 text-emerald-800" : "bg-orange-50 text-orange-800"}`}>
-                          <span>{String(e.variant_id ?? e.item ?? "Item")}: </span>
-                          <strong>{e.restocked ? `+${String(e.quantity ?? 1)} cộng kho` : "Không cộng kho"}</strong>
-                          {e.note ? <span className="ml-2 text-xs opacity-70">{String(e.note)}</span> : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </section>
-              ) : null}
             </div>
 
             {/* ── Right: lịch sử xử lý ── */}
             <div>
               <section className="sticky top-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                 <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Lịch sử xử lý</h2>
-                {historyLog.length === 0 ? (
+                {timelineEntries.length === 0 ? (
                   <p className="text-sm text-slate-400">Chưa có lịch sử.</p>
                 ) : (
                   <ol className="space-y-4">
-                    {historyLog.map((h, i) => {
+                    {timelineEntries.map((h, i) => {
                       const action = String(h.action ?? "").toUpperCase();
                       const ACTION_LABELS: Record<string, string> = {
                         RETURN_REQUESTED: "Khách yêu cầu trả",
@@ -623,11 +724,12 @@ export default function AdminReturnDetailPage() {
                         INSPECTING:       "Đã nhận hàng & kiểm tra",
                         REFUNDED:         "Đã hoàn tiền",
                         REJECTED:         "Đã từ chối",
+                        INBOUND_CREATED_FROM_RETURN: "Hệ thống đã tạo phiếu nhập kho tự động từ hoàn trả",
                         RECEIVED:         "Đã nhận hàng",    // legacy
                         PROCESSING:       "Đang xử lý",      // legacy
                         COMPLETED:        "Hoàn tất",        // legacy
                       };
-                      const isLast = i === historyLog.length - 1;
+                      const isLast = i === timelineEntries.length - 1;
                       return (
                         <li key={i} className="flex items-start gap-3 text-sm">
                           <div className="flex flex-col items-center">
@@ -655,7 +757,7 @@ export default function AdminReturnDetailPage() {
       {showApprove ? <ApproveModal rid={rid} onClose={() => setShowApprove(false)} onSuccess={refetch} /> : null}
       {showInspect ? <InspectModal rid={rid} onClose={() => setShowInspect(false)} onSuccess={refetch} /> : null}
       {showReject  ? <RejectModal  rid={rid} onClose={() => setShowReject(false)}  onSuccess={refetch} /> : null}
-      {showRefund  ? <RefundConfirm rid={rid} condition={condition} onClose={() => setShowRefund(false)} onSuccess={refetch} /> : null}
+      {showRefund  ? <RefundConfirm rid={rid} condition={condition} onClose={() => setShowRefund(false)} onSuccess={(result) => { setCompleteResult(result); refetch(); }} /> : null}
     </div>
   );
 }

@@ -432,7 +432,14 @@ export default function AdminReturnsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      {(st === "REFUNDED" || st === "COMPLETED") ? fmtMoney(req.refund_amount) : "—"}
+                      <div className="space-y-1">
+                        <p>{(st === "REFUNDED" || st === "COMPLETED") ? fmtMoney(req.refund_amount) : "—"}</p>
+                        {req.restockInboundReceipt ? (
+                          <span className="inline-flex rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">
+                            Đã tạo phiếu nhập
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap justify-end gap-1">

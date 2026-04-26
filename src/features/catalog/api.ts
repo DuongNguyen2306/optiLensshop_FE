@@ -17,6 +17,9 @@ function asArray<T>(data: unknown): T[] {
     if (Array.isArray(o.products)) {
       return o.products as T[];
     }
+    if (Array.isArray(o.variants)) {
+      return o.variants as T[];
+    }
     if (Array.isArray(o.categories)) {
       return o.categories as T[];
     }
@@ -107,7 +110,7 @@ export async function createProductMultipart(payload: {
   return data;
 }
 
-export async function createProductVariant(productId: string, body: ProductVariantInput) {
+export async function createProductVariant(productId: string, body: ProductVariantInput | FormData) {
   const { data } = await axios.post<unknown>(`/products/${encodeURIComponent(productId)}/variants`, body);
   return data;
 }
@@ -188,7 +191,7 @@ export async function toggleActiveProduct(id: string, active: boolean) {
 export async function updateProductVariant(
   productId: string,
   variantId: string,
-  body: Partial<ProductVariantInput>
+  body: Partial<ProductVariantInput> | FormData
 ) {
   const { data } = await axios.put<unknown>(
     `/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}`,

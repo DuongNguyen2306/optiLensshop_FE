@@ -65,20 +65,26 @@ export default function CheckoutFailPage() {
 
   // Tránh flash UI "thất bại" trong lúc còn đang xác minh trạng thái đơn thực tế.
   const isVerifyingFinalStatus = Boolean(orderId) && (confirmQuery.isPending || orderDetailQuery.isPending);
+  const cardCls = isVerifyingFinalStatus
+    ? "border-slate-200 bg-slate-50/70"
+    : "border-rose-200 bg-rose-50/60";
+  const iconCls = isVerifyingFinalStatus ? "text-slate-600" : "text-rose-600";
+  const heading = isVerifyingFinalStatus ? "Đang xác minh trạng thái thanh toán" : "Thanh toán chưa thành công";
+  const iconText = isVerifyingFinalStatus ? "…" : "!";
 
   return (
     <div className="min-h-screen bg-transparent">
       <StoreHeader />
       <main className="mx-auto max-w-xl px-6 py-12">
-        <div className="rounded-2xl border border-rose-200 bg-rose-50/60 p-8 text-center shadow-sm">
-          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-white text-2xl text-rose-600 shadow-sm">
-            !
+        <div className={`rounded-2xl border p-8 text-center shadow-sm ${cardCls}`}>
+          <div className={`mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-white text-2xl shadow-sm ${iconCls}`}>
+            {iconText}
           </div>
-          <h1 className="text-2xl font-bold text-slate-900">Thanh toán chưa thành công</h1>
+          <h1 className="text-2xl font-bold text-slate-900">{heading}</h1>
           {!orderId ? (
             <p className="mt-4 text-sm text-red-600">Không tìm thấy mã đơn hàng trong đường dẫn.</p>
           ) : isVerifyingFinalStatus ? (
-            <p className="mt-4 text-sm text-slate-700">Đang xác minh trạng thái thanh toán...</p>
+            <p className="mt-4 text-sm text-slate-700">Đang xác minh với cổng thanh toán và trạng thái đơn hàng...</p>
           ) : confirmQuery.isError ? (
             <p className="mt-4 text-sm text-red-600">{getApiErrorMessage(confirmQuery.error, "Không thể cập nhật trạng thái thất bại.")}</p>
           ) : (

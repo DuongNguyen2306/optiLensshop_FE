@@ -5,9 +5,16 @@ export type ModelType = "frame" | "lens";
 export interface ProductVariantInput {
   sku?: string;
   attributes?: Record<string, unknown>;
+  color?: string;
+  size?: string;
+  bridge_fit?: string;
+  diameter?: string;
+  base_curve?: string;
+  power?: string;
   price: number;
-  stock_quantity?: number;
   images?: unknown[];
+  available_quantity?: number;
+  reserved_quantity?: number;
 }
 
 export interface ProductVariantSummary {

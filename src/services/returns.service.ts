@@ -1,6 +1,7 @@
 import axios from "@/lib/axios";
 import type {
   AdminReturnsQuery,
+  CompleteReturnResponse,
   MyReturnsQuery,
   ReturnRequest,
   ReturnRequestCreatePayload,
@@ -105,20 +106,19 @@ export async function rejectReturn(
 /** INSPECTING → REFUNDED: CHỈ manager, admin.
  *  Backend trả 403 nếu role là operations.
  */
-export async function refundReturn(returnId: string): Promise<{
-  message?: string;
-  returnRequest?: ReturnRequest;
-  restockLog?: unknown[];
-  finalOrderStatus?: string;
-}> {
+export async function refundReturn(returnId: string): Promise<CompleteReturnResponse> {
   const { data } = await axios.patch<unknown>(
     `/api/admin/returns/${encodeURIComponent(returnId)}/refund`,
     {}
   );
-  return data as {
-    message?: string;
-    returnRequest?: ReturnRequest;
-    restockLog?: unknown[];
-    finalOrderStatus?: string;
-  };
+  return data as CompleteReturnResponse;
+}
+
+/** Alias endpoint mới: PATCH /api/admin/returns/:id/complete */
+export async function completeReturn(returnId: string): Promise<CompleteReturnResponse> {
+  const { data } = await axios.patch<unknown>(
+    `/api/admin/returns/${encodeURIComponent(returnId)}/complete`,
+    {}
+  );
+  return data as CompleteReturnResponse;
 }

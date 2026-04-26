@@ -11,6 +11,7 @@ import type { CustomerOrderListItem } from "@/types/order";
 import { ORDER_STATUS_FILTER_VALUES } from "@/types/order";
 import StoreHeader from "@/components/home/store-header";
 import SiteFooter from "@/components/layout/site-footer";
+import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import { useAppSelector } from "@/store/hooks";
 import { cn } from "@/lib/utils";
 
@@ -168,20 +169,38 @@ export default function OrdersHistoryPage() {
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [search, setSearch] = useState("");
   const [orderKind, setOrderKind] = useState<OrderKindFilter>("");
+  const [pendingCancelOrderId, setPendingCancelOrderId] = useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
 
   const isCustomer = (user?.role ?? "").toLowerCase() === "customer";
 
   const cancelMutation = useMutation({
-    mutationFn: (orderId: string) => cancelMyOrder(orderId),
+    mutationFn: ({ orderId, reason }: { orderId: string; reason: string }) => cancelMyOrder(orderId, reason),
     onSuccess: () => {
       toast.success("Đã gửi yêu cầu hủy đơn.");
       queryClient.invalidateQueries({ queryKey: ["orders", "my"] });
     },
     onError: (e) => toast.error(getApiErrorMessage(e, "Không thể hủy đơn hàng.")),
   });
-  const confirmAndCancelOrder = (orderId: string) => {
-    if (!window.confirm("Bạn có chắc muốn hủy đơn hàng này không?")) return;
-    cancelMutation.mutate(orderId);
+  const askCancelOrder = (orderId: string) => {
+    setPendingCancelOrderId(orderId);
+    setCancelReason("");
+  };
+  const confirmCancelOrder = () => {
+    if (!pendingCancelOrderId) return;
+    const reason = cancelReason.trim();
+    if (!reason) {
+      toast.error("Vui lòng nhập lý do hủy đơn.");
+      return;
+    }
+    cancelMutation.mutate({ orderId: pendingCancelOrderId, reason });
+    setPendingCancelOrderId(null);
+    setCancelReason("");
+  };
+  const closeCancelDialog = () => {
+    if (cancelMutation.isPending) return;
+    setPendingCancelOrderId(null);
+    setCancelReason("");
   };
 
   const lastErrorRef = useRef<string | null>(null);
@@ -398,7 +417,7 @@ export default function OrdersHistoryPage() {
                               <button
                                 type="button"
                                 disabled={cancelMutation.isPending}
-                                onClick={() => confirmAndCancelOrder(oid)}
+                                onClick={() => askCancelOrder(oid)}
                                 className="inline-flex items-center gap-1 rounded-full border border-red-200 px-3 py-1 text-xs font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-60"
                               >
                                 <X className="h-3.5 w-3.5" />
@@ -421,7 +440,7 @@ export default function OrdersHistoryPage() {
                   key={order._id ?? order.id ?? idx}
                   order={order}
                   cancelling={cancelMutation.isPending}
-                  onCancel={confirmAndCancelOrder}
+                  onCancel={askCancelOrder}
                 />
               ))}
             </div>
@@ -456,6 +475,33 @@ export default function OrdersHistoryPage() {
           </>
         )}
       </main>
+      <ConfirmDialog
+        open={Boolean(pendingCancelOrderId)}
+        title="Xác nhận hủy đơn"
+        description={
+          <div className="space-y-3">
+            <p>Bạn có chắc chắn muốn hủy đơn hàng này không? Thao tác này không thể hoàn tác.</p>
+            <div>
+              <label htmlFor="cancel-reason-history" className="mb-1 block text-xs font-medium text-slate-700">
+                Lý do hủy đơn
+              </label>
+              <textarea
+                id="cancel-reason-history"
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="Nhập lý do hủy đơn..."
+                className="min-h-[90px] w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-red-300"
+                disabled={cancelMutation.isPending}
+              />
+            </div>
+          </div>
+        }
+        confirmLabel="Xác nhận hủy"
+        cancelLabel="Giữ lại đơn"
+        loading={cancelMutation.isPending}
+        onConfirm={confirmCancelOrder}
+        onCancel={closeCancelDialog}
+      />
 
       <SiteFooter />
     </div>

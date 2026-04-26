@@ -264,8 +264,9 @@ export async function updateOrderShippingInfo(
   return data as { message?: string; order?: Record<string, unknown> };
 }
 
-export async function cancelMyOrder(orderId: string): Promise<Record<string, unknown>> {
-  const { data } = await axios.put<unknown>(`/orders/${encodeURIComponent(orderId)}/cancel`);
+export async function cancelMyOrder(orderId: string, reason?: string): Promise<Record<string, unknown>> {
+  const payload = reason?.trim() ? { reason: reason.trim() } : {};
+  const { data } = await axios.put<unknown>(`/orders/${encodeURIComponent(orderId)}/cancel`, payload);
   if (data && typeof data === "object") {
     return data as Record<string, unknown>;
   }

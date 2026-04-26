@@ -40,21 +40,22 @@ function LogoMark() {
   return (
     <Link
       to="/"
-      className="group flex min-w-0 shrink-0 items-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2BBBAD]/50"
+      className="group flex min-w-0 shrink-0 items-center gap-2.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2BBBAD]/50"
     >
-      <span
-        className="inline-block overflow-hidden rounded-xl bg-white/95 shadow-sm ring-1 ring-stone-200/50 transition duration-300 ease-out will-change-transform sm:rounded-2xl group-hover:scale-[1.02] group-hover:shadow-md group-hover:ring-stone-300/60 group-active:scale-[0.99] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
-      >
+      <span className="inline-flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl bg-white/95 p-1 shadow-sm ring-1 ring-stone-200/50 transition duration-300 ease-out will-change-transform group-hover:scale-[1.02] group-hover:shadow-md group-hover:ring-stone-300/60 group-active:scale-[0.99] motion-reduce:transition-none motion-reduce:group-hover:scale-100">
         <img
-          src="/images/logo2.png"
+          src="/images/logo.png"
           alt="MYLENS Eyewear Store"
-          width={220}
-          height={64}
-          className="block h-9 w-auto max-w-[min(200px,46vw)] object-contain object-center sm:h-10 sm:max-w-[220px] md:h-11 md:max-w-[240px]"
+          width={44}
+          height={44}
+          className="block h-full w-full object-contain object-center"
           loading="eager"
           decoding="async"
           draggable={false}
         />
+      </span>
+      <span className="hidden text-xl font-semibold tracking-[0.25em] text-[#1f2a44] sm:inline">
+        MYLENS
       </span>
     </Link>
   );

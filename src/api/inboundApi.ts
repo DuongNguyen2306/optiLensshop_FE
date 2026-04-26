@@ -126,6 +126,10 @@ export async function getInbounds(params?: InboundListQuery): Promise<InboundLis
   if (params?.status) query.status = params.status;
   if (params?.type) query.type = params.type;
   if (params?.supplier_name) query.supplier_name = params.supplier_name;
+  if (params?.reference_order_id?.trim()) {
+    query.reference_order_id = params.reference_order_id.trim();
+    query.reference_order = params.reference_order_id.trim();
+  }
   return withFallback(
     async () => {
       const { data } = await axios.get<unknown>("/inbounds", { params: query });

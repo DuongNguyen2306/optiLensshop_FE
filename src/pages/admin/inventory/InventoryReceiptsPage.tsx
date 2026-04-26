@@ -26,6 +26,40 @@ function fmtDate(iso: string | undefined): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString("vi-VN");
 }
 
+function extractReferenceOrderIds(row: Record<string, unknown>): string[] {
+  const direct = [row.reference_order_id, row.reference_order, row.order_id]
+    .map((x) => (typeof x === "string" ? x.trim() : ""))
+    .filter(Boolean);
+  const refs = row.reference_orders;
+  const nested = Array.isArray(refs)
+    ? refs
+        .map((ref) => {
+          if (typeof ref === "string") return ref.trim();
+          if (ref && typeof ref === "object") {
+            const o = ref as Record<string, unknown>;
+            const id = o._id ?? o.id ?? o.order_id ?? o.reference_order_id;
+            return typeof id === "string" ? id.trim() : "";
+          }
+          return "";
+        })
+        .filter(Boolean)
+    : [];
+  return Array.from(new Set([...direct, ...nested]));
+}
+
+function createdByLabel(raw: unknown): string {
+  if (!raw) return "—";
+  if (typeof raw === "string") return raw;
+  if (typeof raw === "object") {
+    const o = raw as Record<string, unknown>;
+    const id = o._id ?? o.id ?? o.user_id;
+    const email = o.email;
+    if (typeof email === "string" && email.trim()) return email.trim();
+    if (typeof id === "string" && id.trim()) return id.trim();
+  }
+  return "—";
+}
+
 export default function InventoryReceiptsPage() {
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -43,6 +77,8 @@ export default function InventoryReceiptsPage() {
   const [items, setItems] = useState<InboundItemInput[]>([{ variant_id: "", qty_planned: 1, import_price: 0 }]);
   const prefillVariantId = searchParams.get("variant_id")?.trim() ?? "";
   const shouldOpenCreate = searchParams.get("open_create") === "1";
+  const refOrderParam = searchParams.get("refOrder")?.trim() ?? "";
+  const [referenceOrderId, setReferenceOrderId] = useState(refOrderParam);
 
   const isOpsRole = role === "operations" || role === "manager" || role === "admin";
   const inboundsQuery = useInboundsList({
@@ -51,6 +87,7 @@ export default function InventoryReceiptsPage() {
     status: status || undefined,
     type: type || undefined,
     supplier_name: supplierName || undefined,
+    reference_order_id: referenceOrderId || undefined,
   });
   const { submitMutation } = useInboundActions();
 
@@ -65,7 +102,11 @@ export default function InventoryReceiptsPage() {
     onError: (e) => toast.error(parseApiError(e, "Không thể tạo phiếu nhập.")),
   });
 
-  const rows = inboundsQuery.data?.items ?? [];
+  const rowsRaw = inboundsQuery.data?.items ?? [];
+  const rows = useMemo(() => {
+    if (!referenceOrderId) return rowsRaw;
+    return rowsRaw.filter((row) => extractReferenceOrderIds(row as Record<string, unknown>).includes(referenceOrderId));
+  }, [rowsRaw, referenceOrderId]);
   const pg = inboundsQuery.data?.pagination ?? { page, pageSize, total: rows.length, totalPages: 1 };
 
   const totalValuePreview = useMemo(
@@ -151,7 +192,7 @@ export default function InventoryReceiptsPage() {
         ) : null}
       </div>
 
-      <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-5">
+      <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-6">
         <div className="space-y-1.5">
           <Label>Trạng thái</Label>
           <select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
@@ -177,6 +218,17 @@ export default function InventoryReceiptsPage() {
         <div className="space-y-1.5">
           <Label>Supplier</Label>
           <Input value={supplierName} onChange={(e) => { setSupplierName(e.target.value); setPage(1); }} />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Ref order</Label>
+          <Input
+            placeholder="Order ID liên kết"
+            value={referenceOrderId}
+            onChange={(e) => {
+              setReferenceOrderId(e.target.value.trim());
+              setPage(1);
+            }}
+          />
         </div>
         <div className="space-y-1.5">
           <Label>Page size</Label>
@@ -249,6 +301,12 @@ export default function InventoryReceiptsPage() {
         </section>
       ) : null}
 
+      {referenceOrderId ? (
+        <p className="text-xs text-slate-500">
+          Đang lọc theo đơn tham chiếu: <span className="font-mono text-slate-700">{referenceOrderId}</span>
+        </p>
+      ) : null}
+
       {inboundsQuery.isPending ? (
         <p className="text-sm text-slate-600">Đang tải danh sách phiếu nhập…</p>
       ) : inboundsQuery.isError ? (
@@ -270,6 +328,7 @@ export default function InventoryReceiptsPage() {
                   <th className="px-4 py-3 text-left">Supplier</th>
                   <th className="px-4 py-3 text-left">Total value</th>
                   <th className="px-4 py-3 text-left">Created by</th>
+                  <th className="px-4 py-3 text-left">Ref orders</th>
                   <th className="px-4 py-3 text-left">Created at</th>
                   <th className="px-4 py-3 text-right">Action</th>
                 </tr>
@@ -278,14 +337,20 @@ export default function InventoryReceiptsPage() {
                 {rows.map((r, idx) => {
                   const id = String(r._id ?? r.id ?? idx);
                   const inboundStatus = String(r.status ?? "DRAFT").toUpperCase();
+                  const isHighlighted =
+                    Boolean(referenceOrderId) &&
+                    extractReferenceOrderIds(r as Record<string, unknown>).includes(referenceOrderId);
                   return (
-                    <tr key={id} className="hover:bg-slate-50/70">
+                    <tr key={id} className={isHighlighted ? "bg-amber-50/70 hover:bg-amber-50" : "hover:bg-slate-50/70"}>
                       <td className="px-4 py-3 font-mono text-xs text-slate-700">{String(r.inbound_code ?? id)}</td>
                       <td className="px-4 py-3">{INBOUND_TYPE_LABEL[String(r.type ?? "")] ?? String(r.type ?? "—")}</td>
                       <td className="px-4 py-3">{INBOUND_STATUS_LABEL[inboundStatus] ?? inboundStatus}</td>
                       <td className="px-4 py-3">{String(r.supplier_name ?? "—")}</td>
                       <td className="px-4 py-3 font-semibold">{fmtMoney(Number(r.total_value ?? 0))}</td>
-                      <td className="px-4 py-3">{String((r.created_by as Record<string, unknown> | string | undefined) ?? "—")}</td>
+                      <td className="px-4 py-3">{createdByLabel(r.created_by)}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                        {extractReferenceOrderIds(r as Record<string, unknown>).join(", ") || "—"}
+                      </td>
                       <td className="px-4 py-3">{fmtDate(String(r.createdAt ?? r.created_at ?? ""))}</td>
                       <td className="px-4 py-3 text-right">
                         <div className="inline-flex gap-2">

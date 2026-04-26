@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
+import { getInbounds } from "@/api/inboundApi";
+import { INBOUND_STATUS_LABEL } from "@/constants/inbound";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -268,6 +270,32 @@ function itemVariantInfo(item: Record<string, unknown>): { name: string; sku: st
   return { name, sku, price, image: variantImage || productImage || "" };
 }
 
+function extractReferenceOrderIds(inbound: Record<string, unknown>): string[] {
+  const direct = [inbound.reference_order_id, inbound.reference_order, inbound.order_id]
+    .map((x) => (typeof x === "string" ? x.trim() : ""))
+    .filter(Boolean);
+  const refs = inbound.reference_orders;
+  const nested = Array.isArray(refs)
+    ? refs
+        .map((ref) => {
+          if (typeof ref === "string") return ref.trim();
+          if (ref && typeof ref === "object") {
+            const o = ref as Record<string, unknown>;
+            const raw = o._id ?? o.id ?? o.order_id ?? o.reference_order_id;
+            return typeof raw === "string" ? raw.trim() : "";
+          }
+          return "";
+        })
+        .filter(Boolean)
+    : [];
+  return Array.from(new Set([...direct, ...nested]));
+}
+
+function inboundUiLabel(status: string): string {
+  const s = status.toUpperCase();
+  return INBOUND_STATUS_LABEL[s] ?? s;
+}
+
 export default function InternalOrdersPage() {
   const queryClient = useQueryClient();
   const role = useAppSelector((s) => normalizeRole(s.auth.user?.role) ?? "");
@@ -349,12 +377,47 @@ export default function InternalOrdersPage() {
     [ordersQuery.data, page, limit, rows.length]
   );
 
+  const inboundLinksQuery = useQuery({
+    queryKey: ["inbounds", "linked-orders", page, limit, status, orderKind],
+    enabled: rows.length > 0,
+    queryFn: () => getInbounds({ page: 1, pageSize: 200 }),
+    staleTime: 10_000,
+  });
+  const inboundByOrderId = useMemo(() => {
+    const map = new Map<string, { id: string; status: string }>();
+    const list = inboundLinksQuery.data?.items ?? [];
+    for (const it of list) {
+      const rec = it as Record<string, unknown>;
+      const inboundId = String(rec._id ?? rec.id ?? "");
+      const inboundStatus = String(rec.status ?? "DRAFT").toUpperCase();
+      for (const oid of extractReferenceOrderIds(rec)) {
+        const prev = map.get(oid);
+        if (!prev) {
+          map.set(oid, { id: inboundId, status: inboundStatus });
+          continue;
+        }
+        const rank = (s: string) => ["DRAFT", "PENDING_APPROVAL", "APPROVED", "RECEIVED", "COMPLETED", "CANCELLED"].indexOf(s);
+        if (rank(inboundStatus) > rank(prev.status)) {
+          map.set(oid, { id: inboundId, status: inboundStatus });
+        }
+      }
+    }
+    return map;
+  }, [inboundLinksQuery.data?.items]);
+
   const confirmMutation = useMutation({
-    mutationFn: (payload: { orderId: string; action: "confirm" | "reject"; reason?: string }) =>
+    mutationFn: (payload: { orderId: string; action: "confirm" | "reject"; reason?: string; orderType?: string }) =>
       confirmOrder(payload.orderId, { action: payload.action, reason: payload.reason }),
-    onSuccess: () => {
-      toast.success("Đã cập nhật trạng thái xác nhận đơn.");
-      queryClient.invalidateQueries({ queryKey: ["orders", "all"] });
+    onSuccess: (_data, variables) => {
+      const isPreOrderConfirm =
+        variables.action === "confirm" && String(variables.orderType ?? "").toLowerCase() === "pre_order";
+      toast.success(
+        isPreOrderConfirm
+          ? "Đơn pre-order đã xác nhận. Hệ thống đã tự tạo phiếu nhập kho chờ duyệt."
+          : "Đã cập nhật trạng thái xác nhận đơn."
+      );
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "orders", "detail"] });
       setConfirmState(null);
       setRejectReason("");
     },
@@ -497,6 +560,7 @@ export default function InternalOrdersPage() {
                 <th className="px-4 py-3">Tổng tiền</th>
                 <th className="px-4 py-3">Trạng thái</th>
                 <th className="px-4 py-3">Thanh toán</th>
+                <th className="px-4 py-3">Inbound</th>
                 <th className="px-4 py-3">Ngày tạo</th>
                 <th className="px-4 py-3">Lens params</th>
                 <th className="px-4 py-3">Items</th>
@@ -513,6 +577,15 @@ export default function InternalOrdersPage() {
                 const items = readItems(order);
                 const needsProcessing = orderNeedsProcessing(order);
                 const orderType = String(order.order_type ?? "stock").toLowerCase();
+                const linkedInbound = inboundByOrderId.get(id);
+                const linkedInboundStatus = linkedInbound?.status ?? "";
+                const inboundReady = orderType !== "pre_order" || linkedInboundStatus === "RECEIVED" || linkedInboundStatus === "COMPLETED";
+                const inboundStatusText =
+                  orderType !== "pre_order"
+                    ? "Không yêu cầu"
+                    : linkedInboundStatus
+                      ? inboundUiLabel(linkedInboundStatus)
+                      : "Chưa có phiếu";
                 const allNextStatuses = nextStatusesByOrderType(orderType, statusValue);
                 const nextStatuses = allNextStatuses.filter((nextStatus) => {
                   if (isOperationsRole) {
@@ -526,6 +599,7 @@ export default function InternalOrdersPage() {
                 const nextStatusesFiltered = needsProcessing
                   ? nextStatuses
                   : nextStatuses.filter((s) => s !== "manufacturing");
+                const nextStatusesVisible = nextStatusesFiltered.filter((s) => !(orderType === "pre_order" && s === "received" && !inboundReady));
                 return (
                   <tr key={id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70">
                     <td className="px-4 py-3 font-mono text-xs text-slate-700">{id || "—"}</td>
@@ -535,6 +609,11 @@ export default function InternalOrdersPage() {
                     </td>
                     <td className="px-4 py-3">{orderReadableStatus(order.status)}</td>
                     <td className="px-4 py-3">{[payMethod || "—", payStatus || "—"].join(" / ")}</td>
+                    <td className="px-4 py-3 text-xs">
+                      <span className={orderType === "pre_order" ? "rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700" : "text-slate-500"}>
+                        {inboundStatusText}
+                      </span>
+                    </td>
                     <td className="px-4 py-3">{formatDate(order.created_at)}</td>
                     <td className="px-4 py-3 text-xs text-slate-600">
                       {lensWorksheet ? <pre className="max-w-[250px] overflow-auto whitespace-pre-wrap">{JSON.stringify(lensWorksheet, null, 2)}</pre> : "—"}
@@ -596,7 +675,7 @@ export default function InternalOrdersPage() {
 
                         {/* Sales chỉ dùng Xác nhận / Từ chối cho pending */}
                         {!isSales
-                          ? nextStatusesFiltered.map((nextStatus) => (
+                          ? nextStatusesVisible.map((nextStatus) => (
                               <Button
                                 key={`${id}_${nextStatus}`}
                                 type="button"
@@ -615,6 +694,29 @@ export default function InternalOrdersPage() {
                               </Button>
                             ))
                           : null}
+                        {!isSales && orderType === "pre_order" && nextStatusesFiltered.includes("received") && !inboundReady ? (
+                          <>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-8 px-3 text-xs"
+                              title="Đơn pre-order chỉ được xác nhận 'hàng đã về' sau khi phiếu nhập đã RECEIVED/COMPLETED."
+                              disabled
+                            >
+                              Hàng đã về kho
+                            </Button>
+                            <Link to={`/admin/inventory/receipts?refOrder=${encodeURIComponent(id)}`}>
+                              <Button type="button" variant="outline" className="h-8 px-3 text-xs">
+                                Đi tới phiếu nhập
+                              </Button>
+                            </Link>
+                            {linkedInboundStatus === "PENDING_APPROVAL" || linkedInboundStatus === "APPROVED" ? (
+                              <Button type="button" variant="ghost" className="h-8 px-3 text-xs text-amber-700" disabled>
+                                Chờ duyệt phiếu nhập
+                              </Button>
+                            ) : null}
+                          </>
+                        ) : null}
                         {(statusValue === "return_requested" || statusValue === "returned" || statusValue === "refunded") && isOperationsRole ? (
                           <Link to="/admin/returns">
                             <Button
@@ -699,7 +801,12 @@ export default function InternalOrdersPage() {
             return;
           }
           if (confirmState.mode === "sales_confirm") {
-            confirmMutation.mutate({ orderId: confirmState.orderId, action: "confirm" });
+            const selectedOrder = rows.find((o) => readOrderId(o) === confirmState.orderId);
+            confirmMutation.mutate({
+              orderId: confirmState.orderId,
+              action: "confirm",
+              orderType: String(selectedOrder?.order_type ?? ""),
+            });
             return;
           }
           if (confirmState.mode === "sales_reject") {

@@ -1,12 +1,14 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Save, Truck } from "lucide-react";
+import { getInbounds } from "@/api/inboundApi";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
+import { INBOUND_STATUS_LABEL } from "@/constants/inbound";
 import { getApiErrorMessage } from "@/lib/api-error";
 import { nextStatusesByOrderType, normalizeOrderStatus, orderReadableStatus } from "@/lib/order-utils";
 import { normalizeRole } from "@/lib/role-routing";
@@ -142,6 +144,58 @@ function statusBadgeCls(status: string): string {
   return "bg-slate-100 text-slate-600";
 }
 
+function inboundStatusBadgeCls(status: string): string {
+  const s = status.toUpperCase();
+  if (s === "DRAFT") return "bg-slate-100 text-slate-700";
+  if (s === "PENDING_APPROVAL") return "bg-amber-100 text-amber-800";
+  if (s === "APPROVED") return "bg-blue-100 text-blue-700";
+  if (s === "RECEIVED") return "bg-indigo-100 text-indigo-700";
+  if (s === "COMPLETED") return "bg-emerald-100 text-emerald-700";
+  if (s === "CANCELLED") return "bg-rose-100 text-rose-700";
+  return "bg-slate-100 text-slate-700";
+}
+
+function extractReferenceOrderIds(row: Record<string, unknown>): string[] {
+  const direct = [row.reference_order_id, row.reference_order, row.order_id]
+    .map((x) => (typeof x === "string" ? x.trim() : ""))
+    .filter(Boolean);
+  const refs = row.reference_orders;
+  const nested = Array.isArray(refs)
+    ? refs
+        .map((ref) => {
+          if (typeof ref === "string") return ref.trim();
+          if (ref && typeof ref === "object") {
+            const o = ref as Record<string, unknown>;
+            const id = o._id ?? o.id ?? o.order_id ?? o.reference_order_id;
+            return typeof id === "string" ? id.trim() : "";
+          }
+          return "";
+        })
+        .filter(Boolean)
+    : [];
+  return Array.from(new Set([...direct, ...nested]));
+}
+
+function isConfirmedOrLater(status: string): boolean {
+  const flow = [
+    "pending",
+    "confirmed",
+    "processing",
+    "manufacturing",
+    "received",
+    "packed",
+    "shipped",
+    "delivered",
+    "completed",
+    "cancelled",
+    "return_requested",
+    "returned",
+    "refunded",
+  ];
+  const idx = flow.indexOf(status.toLowerCase());
+  return idx >= flow.indexOf("confirmed");
+}
+
 const SHIPPING_EDITABLE_STATUSES = new Set(["confirmed", "packed", "shipped", "completed"]);
 
 function lensVal(v: unknown): string {
@@ -158,6 +212,8 @@ interface ConfirmState {
   description: string;
   nextStatus?: string;
 }
+
+const INBOUND_STEPS = ["DRAFT", "PENDING_APPROVAL", "APPROVED", "RECEIVED", "COMPLETED"] as const;
 
 export default function AdminOrderDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -193,6 +249,60 @@ export default function AdminOrderDetailPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [carrier, setCarrier] = useState<string | null>(null);
   const [tracking, setTracking] = useState<string | null>(null);
+  const [inboundSyncRetry, setInboundSyncRetry] = useState(0);
+  const canSeeInboundPanel = orderType === "pre_order" && isConfirmedOrLater(currentStatus) && Boolean(oid);
+
+  const inboundByOrderQuery = useQuery({
+    queryKey: ["inbounds", "by-order", oid, inboundSyncRetry],
+    enabled: canSeeInboundPanel,
+    queryFn: async () => {
+      const listByRef = await getInbounds({ page: 1, pageSize: 200, reference_order_id: oid || undefined });
+      let exact = listByRef.items.filter((x) => {
+        const rec = x as Record<string, unknown>;
+        return extractReferenceOrderIds(rec).includes(oid);
+      });
+      if (exact.length === 0) {
+        const listFallback = await getInbounds({ page: 1, pageSize: 200 });
+        exact = listFallback.items.filter((x) => {
+          const rec = x as Record<string, unknown>;
+          return extractReferenceOrderIds(rec).includes(oid);
+        });
+      }
+      return exact;
+    },
+  });
+  const relatedInbounds = useMemo(() => {
+    const src = inboundByOrderQuery.data ?? [];
+    const seen = new Set<string>();
+    return src.filter((row, idx) => {
+      const rec = row as Record<string, unknown>;
+      const key = String(rec._id ?? rec.id ?? idx);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [inboundByOrderQuery.data]);
+  const linkedInboundStatus = useMemo(() => {
+    if (relatedInbounds.length === 0) return "";
+    const rank = (s: string) => ["DRAFT", "PENDING_APPROVAL", "APPROVED", "RECEIVED", "COMPLETED", "CANCELLED"].indexOf(s);
+    return [...relatedInbounds]
+      .map((x) => String((x as Record<string, unknown>).status ?? "DRAFT").toUpperCase())
+      .sort((a, b) => rank(b) - rank(a))[0] ?? "";
+  }, [relatedInbounds]);
+  const inboundReadyForReceived =
+    orderType !== "pre_order" || linkedInboundStatus === "RECEIVED" || linkedInboundStatus === "COMPLETED";
+  const nextStatusesVisible = nextStatusesFiltered.filter(
+    (s) => !(orderType === "pre_order" && s === "received" && !inboundReadyForReceived)
+  );
+
+  useEffect(() => {
+    if (!canSeeInboundPanel) return;
+    if (inboundByOrderQuery.isFetching) return;
+    if (relatedInbounds.length > 0) return;
+    if (inboundSyncRetry >= 2) return;
+    const timer = window.setTimeout(() => setInboundSyncRetry((v) => v + 1), 3000);
+    return () => window.clearTimeout(timer);
+  }, [canSeeInboundPanel, inboundByOrderQuery.isFetching, relatedInbounds.length, inboundSyncRetry]);
 
   const displayCarrier = carrier ?? readStr(order, "shipping_carrier");
   const displayTracking = tracking ?? readStr(order, "tracking_code");
@@ -232,9 +342,18 @@ export default function AdminOrderDetailPage() {
         action: approve ? "confirm" : "reject",
         reason,
       }),
-    onSuccess: () => {
-      toast.success("Đã xử lý đơn.");
+    onSuccess: (_data, variables) => {
+      const isPreOrderConfirm = variables.approve && orderType === "pre_order";
+      toast.success(
+        isPreOrderConfirm
+          ? "Đơn pre-order đã xác nhận. Hệ thống đã tự tạo phiếu nhập kho chờ duyệt."
+          : "Đã xử lý đơn."
+      );
+      if (isPreOrderConfirm) {
+        setInboundSyncRetry(0);
+      }
       queryClient.invalidateQueries({ queryKey: ["admin", "orders", "detail", id] });
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
       setConfirmState(null);
     },
     onError: (e) => {
@@ -312,7 +431,7 @@ export default function AdminOrderDetailPage() {
             ) : null}
 
             {(!isSales || currentStatus === "return_requested")
-              ? nextStatusesFiltered.map((nextStatus) => (
+              ? nextStatusesVisible.map((nextStatus) => (
                   <Button
                     key={nextStatus}
                     type="button"
@@ -328,6 +447,29 @@ export default function AdminOrderDetailPage() {
                   </Button>
                 ))
               : null}
+            {!isSales && orderType === "pre_order" && nextStatusesFiltered.includes("received") && !inboundReadyForReceived ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 px-3 text-xs"
+                  title="Đơn pre-order chỉ được xác nhận 'hàng đã về' sau khi phiếu nhập đã RECEIVED/COMPLETED."
+                  disabled
+                >
+                  Hàng đã về kho
+                </Button>
+                <Link to={`/admin/inventory/receipts?refOrder=${encodeURIComponent(oid)}`}>
+                  <Button type="button" variant="outline" className="h-8 px-3 text-xs">
+                    Đi tới phiếu nhập
+                  </Button>
+                </Link>
+                {linkedInboundStatus === "PENDING_APPROVAL" || linkedInboundStatus === "APPROVED" ? (
+                  <Button type="button" variant="ghost" className="h-8 px-3 text-xs text-amber-700" disabled>
+                    Chờ duyệt phiếu nhập
+                  </Button>
+                ) : null}
+              </>
+            ) : null}
           </div>
         )}
       </div>
@@ -380,6 +522,117 @@ export default function AdminOrderDetailPage() {
                 ) : null}
               </div>
             </section>
+
+            {canSeeInboundPanel ? (
+              <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Phiếu nhập liên quan</h2>
+                  <div className="flex flex-wrap gap-2">
+                    <Link to={`/admin/inventory/receipts?refOrder=${encodeURIComponent(oid)}`}>
+                      <Button type="button" variant="outline" className="h-8 px-3 text-xs">
+                        Mở danh sách phiếu nhập
+                      </Button>
+                    </Link>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-8 px-3 text-xs"
+                      onClick={() => {
+                        setInboundSyncRetry(0);
+                        inboundByOrderQuery.refetch();
+                      }}
+                      disabled={inboundByOrderQuery.isFetching}
+                    >
+                      Làm mới
+                    </Button>
+                  </div>
+                </div>
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  {INBOUND_STEPS.map((step, idx) => {
+                    const reached = linkedInboundStatus
+                      ? INBOUND_STEPS.indexOf(step) <= INBOUND_STEPS.indexOf(linkedInboundStatus as (typeof INBOUND_STEPS)[number])
+                      : false;
+                    return (
+                      <div key={step} className="flex items-center gap-2 text-xs">
+                        <span className={reached ? "rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700" : "rounded-full bg-slate-100 px-2 py-0.5 text-slate-500"}>
+                          {INBOUND_STATUS_LABEL[step] ?? step}
+                        </span>
+                        {idx < INBOUND_STEPS.length - 1 ? <span className="text-slate-300">→</span> : null}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {inboundByOrderQuery.isError ? (
+                  <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    {getApiErrorMessage(inboundByOrderQuery.error, "Không tải được phiếu nhập liên quan đơn này.")}
+                  </p>
+                ) : inboundByOrderQuery.isFetching && relatedInbounds.length === 0 ? (
+                  <p className="text-sm text-slate-500">Đang đồng bộ phiếu nhập...</p>
+                ) : relatedInbounds.length === 0 ? (
+                  <p className="text-sm text-slate-500">Chưa thấy phiếu nhập liên kết. Hệ thống có thể đang đồng bộ, bạn bấm Làm mới sau vài giây.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {relatedInbounds.map((inbound, idx) => {
+                      const rec = inbound as Record<string, unknown>;
+                      const inboundId = String(rec._id ?? rec.id ?? "");
+                      const status = String(rec.status ?? "DRAFT").toUpperCase();
+                      const createdAt = String(rec.createdAt ?? rec.created_at ?? "");
+                      return (
+                        <div key={inboundId || idx} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 p-3">
+                          <div className="space-y-1 text-sm">
+                            <p className="font-semibold text-slate-900">{String(rec.inbound_code ?? (inboundId || "—"))}</p>
+                            <p className="text-xs text-slate-500">Tạo lúc: {fmtDate(createdAt)}</p>
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${inboundStatusBadgeCls(status)}`}>
+                              {INBOUND_STATUS_LABEL[status] ?? status}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {role === "sales" ? (
+                              <Button type="button" variant="outline" className="h-8 px-3 text-xs" disabled>
+                                Bạn không có quyền xem phiếu nhập
+                              </Button>
+                            ) : (
+                              <Link to={`/admin/inventory/receipts/${encodeURIComponent(inboundId)}`}>
+                                <Button type="button" variant="outline" className="h-8 px-3 text-xs">
+                                  Xem chi tiết phiếu
+                                </Button>
+                              </Link>
+                            )}
+                            {(role === "manager" || role === "admin") && status === "PENDING_APPROVAL" ? (
+                              <Link to={`/admin/inventory/receipts/${encodeURIComponent(inboundId)}`}>
+                                <Button type="button" className="h-8 px-3 text-xs">
+                                  Duyệt phiếu
+                                </Button>
+                              </Link>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+                  <p className="mb-2 font-semibold text-slate-800">Điều kiện chuyển bước (pre-order)</p>
+                  <ul className="space-y-1 text-xs text-slate-600">
+                    <li>
+                      {relatedInbounds.length > 0 ? "✓" : "✕"} Có inbound liên kết đơn
+                    </li>
+                    <li>
+                      {inboundReadyForReceived ? "✓" : "✕"} Inbound ở trạng thái RECEIVED/COMPLETED để cho phép “Hàng đã về kho”
+                    </li>
+                    <li>
+                      {(role === "operations" || role === "manager" || role === "admin") ? "✓" : "✕"} Quyền thao tác theo vai trò
+                    </li>
+                  </ul>
+                  {!inboundReadyForReceived ? (
+                    <p className="mt-2 rounded bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                      Đơn pre-order chỉ được xác nhận “hàng đã về” sau khi phiếu nhập đã RECEIVED/COMPLETED.
+                    </p>
+                  ) : null}
+                </div>
+              </section>
+            ) : null}
 
             {/* Items */}
             <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">

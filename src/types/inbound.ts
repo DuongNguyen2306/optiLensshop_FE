@@ -71,6 +71,7 @@ export interface InboundReceipt {
   items?: InboundItem[];
   allocation_summary?: AllocationSummaryEntry[] | Record<string, unknown>;
   history_log?: HistoryLog[];
+  reference_orders?: Array<string | { _id?: string; id?: string; order_id?: string }>;
   [key: string]: unknown;
 }
 
@@ -80,6 +81,7 @@ export interface InboundListQuery {
   status?: string;
   type?: string;
   supplier_name?: string;
+  reference_order_id?: string;
 }
 
 export interface InboundListResponse extends PaginationResponse<InboundReceipt> {}
